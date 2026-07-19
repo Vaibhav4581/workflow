@@ -102,7 +102,7 @@ function GlobalSettings() {
                 placeholder="E.g., Condonation, Fee Payment..."
                 style={{ flex: 1, padding: 10, borderRadius: 6, border: '1px solid #ccc' }}
               />
-              <button type="submit" className="admin-btn" style={{ background: '#3b82f6' }}>Add Subject</button>
+              <button type="submit" className="admin-btn" style={{ background: '#3b82f6', color: 'white' }}>Add Subject</button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input 
@@ -162,7 +162,7 @@ function GlobalSettings() {
               placeholder="E.g., Vice Principal, Lab Assistant..."
               style={{ flex: 1, padding: 10, borderRadius: 6, border: '1px solid #ccc' }}
             />
-            <button type="submit" className="admin-btn" style={{ background: '#3b82f6' }}>Add Role</button>
+            <button type="submit" className="admin-btn" style={{ background: '#3b82f6', color: 'white' }}>Add Role</button>
           </form>
         </div>
         <table className="admin-table">
@@ -177,7 +177,7 @@ function GlobalSettings() {
               <tr key={c._id}>
                 <td>{c.value}</td>
                 <td>
-                  <button className="admin-btn" style={{ background: '#ef4444' }} onClick={() => handleDelete(c._id, 'role')}>Delete</button>
+                  <button className="admin-btn" style={{ background: '#ef4444', color: 'white' }} onClick={() => handleDelete(c._id, 'role')}>Delete</button>
                 </td>
               </tr>
             ))}

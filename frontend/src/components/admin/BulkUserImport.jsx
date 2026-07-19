@@ -91,7 +91,7 @@ const BulkUserImport = ({ onImportSuccess }) => {
     <div className="bulk-import">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h3 style={{ margin: 0 }}>Bulk User Import (CSV / Excel)</h3>
-        <button className="admin-btn" style={{ background: '#4b5563' }} onClick={downloadTemplate}>Download Template</button>
+        <button className="admin-btn" style={{ background: '#4b5563', color: 'white' }} onClick={downloadTemplate}>Download Template</button>
       </div>
       
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -105,7 +105,7 @@ const BulkUserImport = ({ onImportSuccess }) => {
           className="admin-btn" 
           onClick={handleUpload}
           disabled={loading || !file}
-          style={{ background: '#3b82f6', opacity: (loading || !file) ? 0.6 : 1 }}
+          style={{ background: '#3b82f6', color: 'white', opacity: (loading || !file) ? 0.6 : 1 }}
         >
           {loading ? 'Uploading...' : 'Upload & Create'}
         </button>

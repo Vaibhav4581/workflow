@@ -1,7 +1,8 @@
+import { ROLES, isRole } from '../utils/roles';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import WelcomeAnimation from '../pages/WelcomeAnimation';
+
 import './LoginPage.css';
 
 function detectRole(email) {
@@ -16,7 +17,7 @@ function LoginPage() {
     password: ''
   });
   const [error, setError] = useState('');
-  const [showAnimation, setShowAnimation] = useState(false);
+
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -26,11 +27,11 @@ function LoginPage() {
     });
   };
 
-  const handleAnimationComplete = () => {
+  const handleLoginSuccess = () => {
     const role = localStorage.getItem('userRole');
-    if (role === 'principal' || role === 'Principal') {
+    if (isRole(role, ROLES.PRINCIPAL)) {
       navigate('/principal');
-    } else if (role === 'admin' || role === 'Admin') {
+    } else if (isRole(role, ROLES.ADMIN)) {
       navigate('/admin');
     } else {
       navigate('/dashboard');
@@ -56,10 +57,12 @@ function LoginPage() {
       localStorage.setItem('userName', `${data.fName} ${data.lName}`);
       localStorage.setItem('userRole', data.role);
       localStorage.setItem('userEmail', data.email);
+      // Mark that user went through the login form this session
+      sessionStorage.setItem('sessionActive', 'true');
       window.dispatchEvent(new Event('authChanged'));
       
-      // Show animation before navigation
-      setShowAnimation(true);
+      // Go directly to dashboard
+      handleLoginSuccess();
       
     } catch (err) {
       setError(err.response?.data || 'Login failed');
@@ -68,16 +71,20 @@ function LoginPage() {
 
   return (
     <>
-      {showAnimation && <WelcomeAnimation onComplete={handleAnimationComplete} />}
+
       <div className="login-page">
         <div className="login-container">
-          <h2>Login</h2>
+          <div className="login-header">
+            <img src="/sngce.jpg" alt="SNGCE Logo" className="login-logo" />
+            <h1>WORKFLOW</h1>
+            <p>Sign in to continue to your dashboard</p>
+          </div>
           <form onSubmit={handleSubmit} className="login-form">
             <div className="form-group">
               <input
                 type="email"
                 name="email"
-                placeholder="Email"
+                placeholder="Email Address"
                 value={formData.email}
                 onChange={handleChange}
                 required

@@ -4,7 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import './Dashboard.css';
 import { jwtDecode } from "jwt-decode";
 import axios from 'axios';
+import toast from 'react-hot-toast';
+import { customConfirm } from '../utils/customConfirm';
 import Archive from './Archive';
+import { getNextReceiver } from '../utils/hierarchy';
 
 const statusColors = {
   awaiting: '#fbbf24', // yellow
@@ -34,16 +37,6 @@ function SubmissionActions({ submission, navigate, onStatusChange, onDelete, onE
       <button 
         className="view-btn"
         onClick={() => navigate(`/submission/${submission._id || submission.id}`)}
-        style={{
-          padding: '4px 8px',
-          fontSize: '0.75rem',
-          borderRadius: '4px',
-          border: 'none',
-          background: '#3b82f6',
-          color: 'white',
-          cursor: 'pointer',
-          fontWeight: '500'
-        }}
       >
         View
       </button>
@@ -51,16 +44,6 @@ function SubmissionActions({ submission, navigate, onStatusChange, onDelete, onE
         <button 
           className="edit-btn"
           onClick={() => onEdit(submission)}
-          style={{
-            background: '#f59e0b',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '4px 8px',
-            fontSize: '0.75rem',
-            cursor: 'pointer',
-            fontWeight: '500'
-          }}
           title="Edit this form as requested"
         >
           Edit
@@ -68,23 +51,11 @@ function SubmissionActions({ submission, navigate, onStatusChange, onDelete, onE
       )}
       <button 
         className="delete-btn"
-        style={{
-          background: submission.status === 'awaiting' || submission.status === 'edit'
-            ? '#ef4444' 
-            : '#9ca3af',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          padding: '4px 8px',
-          fontSize: '0.75rem',
-          cursor: (submission.status === 'awaiting' || submission.status === 'edit') ? 'pointer' : 'not-allowed',
-          fontWeight: '500',
-          opacity: (submission.status === 'awaiting' || submission.status === 'edit') ? 1 : 0.6
-        }}
         onClick={() => onDelete(submission._id, submission.owner, submission.status)}
         title={(submission.status !== 'awaiting' && submission.status !== 'edit') ? 'Only forms with "awaiting" or "edit" status can be deleted' : 'Delete this form'}
+        disabled={submission.status !== 'awaiting' && submission.status !== 'edit'}
       >
-        Del
+        Delete
       </button>
     </div>
   );
@@ -168,23 +139,23 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
     const submission = submissions.find(s => (s._id || s.id) === formId);
     
     if (!submission) {
-      alert('Form not found.');
+      toast.error('Form not found.');
       return;
     }
     
     // Check if user is the sender
     if (submission.submittedBy === currentUserEmail) {
-      alert('You cannot change the status of your own form. Only reviewers can change form status.');
+      toast.error('You cannot change the status of your own form. Only reviewers can change form status.');
       return;
     }
     
     // Check if user is a valid receiver of this form
     if (!isValidReceiver(submission)) {
-      alert('You can only change the status of forms that were sent to you for review.');
+      toast.error('You can only change the status of forms that were sent to you for review.');
       return;
     }
     
-    if (window.confirm(`Are you sure you want to change status to "${newStatus}"?`)) {
+    if (await customConfirm(`Are you sure you want to change status to "${newStatus}"?`)) {
       try {
         const token = jwtDecode(localStorage.getItem('token'));
         const backendFormType = formType === 'staff' ? 'faculty' : formType;
@@ -204,9 +175,10 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
           return s;
         });
         setSubmissions(updatedSubmissions);
+        toast.success(`Status updated to ${newStatus}`);
       } catch (error) {
         console.error('Error updating status:', error);
-        alert('Failed to update status. Please try again.');
+        toast.error('Failed to update status. Please try again.');
       }
     }
   };
@@ -225,11 +197,11 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
   const handleDeleteForm = async (formId, formType, status) => {
     // Only allow deletion of forms that are still awaiting or need editing
     if (status !== 'awaiting' && status !== 'edit') {
-      alert('Only forms with "awaiting" or "edit" status can be deleted. Forms that are being reviewed or completed cannot be deleted.');
+      toast.error('Only forms with "awaiting" or "edit" status can be deleted. Forms that are being reviewed or completed cannot be deleted.');
       return;
     }
 
-    if (window.confirm('Are you sure you want to delete this form? This action cannot be undone.')) {
+    if (await customConfirm('Are you sure you want to delete this form? This action cannot be undone.')) {
       try {
         // Get user info from localStorage
         const token = jwtDecode(localStorage.getItem('token'));
@@ -247,15 +219,15 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
         const updatedSubmissions = submissions.filter(s => (s._id || s.id) !== formId);
         setSubmissions(updatedSubmissions);
         
-        alert('Form deleted successfully!');
+        toast.success('Form deleted successfully');
       } catch (error) {
         console.error('Error deleting form:', error);
         if (error.response?.status === 403) {
-          alert('You can only delete forms you submitted or received.');
+          toast.error('You can only delete forms you submitted or received.');
         } else if (error.response?.status === 400) {
-          alert(error.response.data?.message || 'Only forms with "awaiting" status can be deleted.');
+          toast.error(error.response.data?.message || 'Only forms with "awaiting" status can be deleted.');
         } else {
-          alert('Failed to delete form. Please try again.');
+          toast.error('Failed to delete form. Please try again.');
         }
       }
     }
@@ -284,7 +256,6 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
                   <th>Current Reviewer</th>
                   <th>Owner</th>
                   <th>Actions</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -313,20 +284,6 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
                         onEdit={handleEditForm}
                         currentUser={currentUser}
                         isValidReceiver={isValidReceiver}
-                      />
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          background: statusColors[submission.status?.toLowerCase?.()] || '#888',
-                          border: '2px solid #fff',
-                          boxShadow: '0 0 2px #aaa',
-                        }}
-                        title={submission.status}
                       />
                     </td>
                   </tr>
@@ -367,7 +324,6 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
                   <th>Date</th>
                   <th>Current Reviewer</th>
                   <th>Actions</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -393,20 +349,6 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
                         onEdit={handleEditForm}
                         currentUser={currentUser}
                         isValidReceiver={isValidReceiver}
-                      />
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          background: statusColors[submission.status?.toLowerCase?.()] || '#888',
-                          border: '2px solid #fff',
-                          boxShadow: '0 0 2px #aaa',
-                        }}
-                        title={submission.status}
                       />
                     </td>
                   </tr>
@@ -445,7 +387,6 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
                   <th>Date</th>
                   <th>Current Reviewer</th>
                   <th>Actions</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -471,20 +412,6 @@ function RoleDashboard({ userRole, submissions, navigate, setSubmissions }) {
                         onEdit={handleEditForm}
                         currentUser={currentUser}
                         isValidReceiver={isValidReceiver}
-                      />
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          background: statusColors[submission.status?.toLowerCase?.()] || '#888',
-                          border: '2px solid #fff',
-                          boxShadow: '0 0 2px #aaa',
-                        }}
-                        title={submission.status}
                       />
                     </td>
                   </tr>
@@ -523,11 +450,19 @@ function Dashboard() {
 
   // FormSidePanel component
   const FormSidePanel = ({ submission }) => {
-    const possibleReceivers = ['HOD', 'Faculty', 'FacultyAdvisor', 'Principal'];
+    const nextRcv = getNextReceiver(submission.category || submission.subject, submission.to);
+    const possibleReceivers = nextRcv ? [nextRcv] : ['HOD', 'Faculty', 'FacultyAdvisor', 'Principal'];
+    const token = jwtDecode(localStorage.getItem('token'));
+    const userRoleLower = token?.role ? token.role.toLowerCase() : '';
+    const userActions = submission.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
+    const hasActed = userActions.some(h => 
+      h.action.toLowerCase().includes('forwarded') || 
+      ['accepted', 'approved', 'rejected', 'not_approved'].some(st => h.action.toLowerCase().includes(st))
+    );
 
     const handleSaveAndForward = async () => {
       if (!remarks || !forwardTo) {
-        alert('Please fill in both remarks and forward to fields');
+        toast.error('Please fill in both remarks and forward to fields');
         return;
       }
 
@@ -556,7 +491,7 @@ function Dashboard() {
         );
       } catch (error) {
         console.error('Error updating form:', error);
-        alert('Failed to update form. Please try again.');
+        toast.error('Failed to update form. Please try again.');
       } finally {
         setIsSaving(false);
       }
@@ -609,65 +544,89 @@ function Dashboard() {
             <div style={{ height: '1px', background: '#e5e7eb' }} />
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-              Add Remarks
-            </label>
-            <textarea
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              placeholder="Enter your remarks..."
-              style={{
-                width: '100%',
-                minHeight: '120px',
-                padding: '12px',
-                borderRadius: '6px',
-                border: '1px solid #d1d5db',
-                resize: 'vertical',
-                fontSize: '14px'
-              }}
-            />
-          </div>
+          {hasActed ? (() => {
+            const actionText = userActions.length > 0 ? userActions[userActions.length - 1].action.toLowerCase() : '';
+            let displayText = 'Action Completed';
+            if (actionText.includes('forwarded to')) {
+              const role = actionText.split('forwarded to')[1].trim();
+              displayText = `Forwarded to ${role.charAt(0).toUpperCase() + role.slice(1)}`;
+            } else if (actionText.includes('not_approved')) {
+              displayText = 'Not Approved';
+            } else if (actionText.includes('approved')) {
+              displayText = 'Approved';
+            } else if (actionText.includes('accepted')) {
+              displayText = 'Accepted';
+            } else if (actionText.includes('rejected')) {
+              displayText = 'Rejected';
+            }
+            return (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#3b82f6', background: '#f3f4f6', borderRadius: '8px', fontWeight: 'bold' }}>
+                {displayText}
+              </div>
+            );
+          })() : (
+            <>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                  Add Remarks
+                </label>
+                <textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Enter your remarks..."
+                  style={{
+                    width: '100%',
+                    minHeight: '120px',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    resize: 'none',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
 
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-              Forward To
-            </label>
-            <select
-              value={forwardTo}
-              onChange={(e) => setForwardTo(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: '1px solid #d1d5db',
-                fontSize: '14px'
-              }}
-            >
-              <option value="">Select recipient...</option>
-              {possibleReceivers.map(receiver => (
-                <option key={receiver} value={receiver}>{receiver}</option>
-              ))}
-            </select>
-          </div>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                  Forward To
+                </label>
+                <select
+                  value={forwardTo}
+                  onChange={(e) => setForwardTo(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="">Select recipient...</option>
+                  {possibleReceivers.map(receiver => (
+                    <option key={receiver} value={receiver}>{receiver}</option>
+                  ))}
+                </select>
+              </div>
 
-          <button
-            onClick={handleSaveAndForward}
-            disabled={isSaving || !remarks || !forwardTo}
-            style={{
-              width: '100%',
-              padding: '12px',
-              background: isSaving || !remarks || !forwardTo ? '#9ca3af' : '#3b82f6',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: isSaving || !remarks || !forwardTo ? 'not-allowed' : 'pointer',
-              fontWeight: '500',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            {isSaving ? 'Saving...' : 'Save & Forward'}
-          </button>
+              <button
+                onClick={handleSaveAndForward}
+                disabled={isSaving || !remarks || !forwardTo}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: isSaving || !remarks || !forwardTo ? '#9ca3af' : '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: isSaving || !remarks || !forwardTo ? 'not-allowed' : 'pointer',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {isSaving ? 'Saving...' : 'Save & Forward'}
+              </button>
+            </>
+          )}
         </div>
       </>
     );
@@ -777,8 +736,10 @@ function Dashboard() {
             const params = new URLSearchParams();
             params.set('role', role);
             if (department) params.set('department', department);
+            params.set('email', email);
             const res = await axios.get(`/getReceivedFormsForUser?${params.toString()}`);
-            setReceivedSubmissions(res.data || []);
+            const unique = res.data ? Array.from(new Map(res.data.map(f => [f._id || f.id, f])).values()) : [];
+            setReceivedSubmissions(unique);
           } catch (err) {
             setErrorReceived('Failed to fetch received submissions');
           } finally {
@@ -791,17 +752,23 @@ function Dashboard() {
             const res = await axios.get(`/getFacultyAdvisor?email=${encodeURIComponent(email)}&department=${encodeURIComponent(department)}`);
             if (res.data && res.data.length > 0) {
               const advisorData = res.data[0];
-              setFaData(advisorData);
               const { year, div } = advisorData;
-              const resFA = await axios.get(`/getReceivedFormsForUser?role=${encodeURIComponent(role)}&department=${encodeURIComponent(department)}&year=${encodeURIComponent(year)}&div=${encodeURIComponent(div)}`);
-              setReceivedSubmissions(resFA.data || []);
+              setYear(year);
+              setDiv(div);
+              const resFA = await axios.get(`/getReceivedFormsForUser?role=${encodeURIComponent(role)}&department=${encodeURIComponent(department)}&year=${encodeURIComponent(year)}&div=${encodeURIComponent(div)}&email=${encodeURIComponent(email)}`);
+              const uniqueFA = resFA.data ? Array.from(new Map(resFA.data.map(f => [f._id || f.id, f])).values()) : [];
+              setReceivedSubmissions(uniqueFA);
+              setLoadingReceived(false);
             } else {
-              fetchReceivedLocal();
+              await fetchReceivedLocal();
             }
           } catch (err) {
-            setErrorReceived('Failed to fetch advisor forms');
-          } finally {
-            setLoadingReceived(false);
+            if (err.response?.status === 404) {
+              await fetchReceivedLocal();
+            } else {
+              setErrorReceived('Failed to fetch advisor forms');
+              setLoadingReceived(false);
+            }
           }
         };
 
@@ -831,105 +798,66 @@ function Dashboard() {
   return (
     <div className="dashboard-page">
       {/* View Mode Toggle and Refresh */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center',
-        gap: '1rem',
-        marginBottom: '2rem',
-        background: 'white',
-        padding: '1rem',
-        borderRadius: '12px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-        maxWidth: '500px',
-        margin: '0 auto 2rem auto'
-      }}>
-        <div style={{ 
-          display: 'flex', 
-          background: '#f1f5f9', 
-          borderRadius: '8px', 
-          padding: '4px',
-          gap: '4px'
-        }}>
+      {/* View Mode Toggle and Refresh */}
+      <div className="dashboard-main-header" style={{ marginBottom: '24px', maxWidth: '1280px', margin: '0 auto' }}>
+        <h1 style={{ margin: '0 0 16px 0', fontSize: '32px', fontWeight: 700, color: 'var(--text-primary)' }}>Dashboard</h1>
+      </div>
+      
+      <div style={{ maxWidth: '1280px', margin: '0 auto 24px auto' }}>
+        <div className="view-toggle-container" style={{ display: 'inline-flex' }}>
           <button
+            className={`view-toggle-btn ${viewMode === 'current' ? 'active' : ''}`}
             onClick={() => setViewMode('current')}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: '6px',
-              background: viewMode === 'current' ? '#3b82f6' : 'transparent',
-              color: viewMode === 'current' ? 'white' : '#64748b',
-              cursor: 'pointer',
-              fontWeight: '500',
-              transition: 'all 0.2s ease'
-            }}
           >
             Current Forms
           </button>
           <button
+            className={`view-toggle-btn ${viewMode === 'archived' ? 'active' : ''}`}
             onClick={() => setViewMode('archived')}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: '6px',
-              background: viewMode === 'archived' ? '#3b82f6' : 'transparent',
-              color: viewMode === 'archived' ? 'white' : '#64748b',
-              cursor: 'pointer',
-              fontWeight: '500',
-              transition: 'all 0.2s ease'
-            }}
           >
             Form History
           </button>
         </div>
-        {/* <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-          <button
-            onClick={handleRefresh}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: '6px',
-              background: '#10b981',
-              color: 'white',
-              cursor: 'pointer',
-              fontWeight: '500',
-              transition: 'all 0.2s ease'
-            }}
-            title="Refresh data"
-          >
-            🔄 Refresh
-          </button> */}
-          {/* <div style={{ 
-            fontSize: '0.75rem', 
-            color: '#6b7280',
-            textAlign: 'center'
-          }}>
-            Last updated: {new Date(lastUpdateTime).toLocaleTimeString()}
-            <br />
-            <span style={{ fontSize: '0.7rem' }}>Auto-refresh: 30s</span>
-          </div> */}
-        {/* </div> */}
       </div>
 
       {viewMode === 'current' ? (
         <>
           <RoleDashboard 
             userRole={userRole} 
-            submissions={submissions.filter(s => !['accepted', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()))} 
+            submissions={submissions} 
             navigate={navigate} 
             setSubmissions={setSubmissions} 
           />
-          <div style={{ marginTop: 48 }}>
-            <div className="dashboard-header" style={{ marginBottom: 24 }}>
-              <h2 style={{ margin: 0, fontWeight: 700, fontSize: 28}}>Received Submissions</h2>
-            </div>
+          {userRole?.toLowerCase() !== 'student' && (() => {
+            const userRoleLower = userRole ? userRole.toLowerCase() : '';
+            const isFormForwardedByUser = (form) => {
+              const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
+              return userActions.some(h => h.action.toLowerCase().includes('forwarded'));
+            };
+
+            const pendingReceivedForms = receivedSubmissions.filter(s => 
+              !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()) && 
+              !isFormForwardedByUser(s)
+            );
+
+            const forwardedForms = receivedSubmissions.filter(s => 
+              !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()) && 
+              isFormForwardedByUser(s)
+            );
+
+            return (
+              <>
+            <div className="dashboard-content" style={{ marginTop: 48 }}>
+              <div className="dashboard-header">
+                <h2 style={{ margin: 0, fontWeight: 700, fontSize: 24}}>Received Submissions</h2>
+              </div>
         {loadingReceived ? (
           <div style={{ padding: 40, textAlign: 'center' }}>Loading received submissions...</div>
         ) : errorReceived ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'red' }}>{errorReceived}</div>
         ) : (
-          <div className="submissions-table" style={{ marginBottom: 48, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto', borderRadius: 16, boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)', background: '#fff' }}>
-            {receivedSubmissions.filter(s => !['accepted', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase())).length === 0 ? (
+          <div className="submissions-table">
+            {pendingReceivedForms.length === 0 ? (
               <div style={{ padding: '32px', textAlign: 'center', color: '#888' }}>No received submissions found.</div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -942,13 +870,10 @@ function Dashboard() {
                     <th>Date</th>
                     <th>Current Reviewer</th>
                     <th>Actions</th>
-                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {receivedSubmissions
-                    .filter(s => !['accepted', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()))
-                    .map((submission, idx) => (
+                  {pendingReceivedForms.map((submission, idx) => (
                     <tr key={submission._id || submission.id || idx}>
                       <td>#{submission.formNo || submission.id || submission._id}</td>
                       <td>{submission.subject}</td>
@@ -963,32 +888,10 @@ function Dashboard() {
                           <button
                             className="view-btn"
                             onClick={() => navigate(`/received-forms/${submission._id || submission.id}`)}
-                            style={{
-                              padding: '6px 12px',
-                              background: '#3b82f6',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer'
-                            }}
                           >
                             View
                           </button>
                         </div>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: 16,
-                            height: 16,
-                            borderRadius: '50%',
-                            background: statusColors[submission.status?.toLowerCase?.()] || '#888',
-                            border: '2px solid #fff',
-                            boxShadow: '0 0 2px #aaa',
-                          }}
-                          title={submission.status}
-                        />
                       </td>
                     </tr>
                   ))}
@@ -998,6 +901,64 @@ function Dashboard() {
           </div>
         )}
       </div>
+
+      <div className="dashboard-content" style={{ marginTop: 48 }}>
+        <div className="dashboard-header">
+          <h2 style={{ margin: 0, fontWeight: 700, fontSize: 24}}>Forwarded Submissions</h2>
+        </div>
+        {loadingReceived ? (
+          <div style={{ padding: 40, textAlign: 'center' }}>Loading forwarded submissions...</div>
+        ) : errorReceived ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'red' }}>{errorReceived}</div>
+        ) : (
+          <div className="submissions-table">
+            {forwardedForms.length === 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#888' }}>No forwarded submissions found.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th>Submission No</th>
+                    <th>Subject</th>
+                    <th>Department</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Current Reviewer</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {forwardedForms.map((submission, idx) => (
+                    <tr key={submission._id || submission.id || idx}>
+                      <td>#{submission.formNo || submission.id || submission._id}</td>
+                      <td>{submission.subject}</td>
+                      <td>{submission.department}</td>
+                      <td>
+                        <span className={`status ${submission.status?.toLowerCase?.() || ''}`}>{submission.status}</span>
+                      </td>
+                      <td>{submission.createdAt ? new Date(submission.createdAt).toLocaleString() : (submission.date ? new Date(submission.date).toLocaleDateString() : '')}</td>
+                      <td>{submission.currentReviewer}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            className="view-btn"
+                            onClick={() => navigate(`/received-forms/${submission._id || submission.id}`)}
+                          >
+                            View
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+      </>
+            );
+          })()}
         </>
       ) : (
         <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>

@@ -429,3 +429,74 @@
 .dark .about-app-info strong {
   color: #e2e8f0;
 }
+
+/* Modal Styling */
+.settings-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease;
+}
+
+.settings-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  animation: slideUp 0.3s ease;
+}
+
+.dark .settings-modal {
+  background: #1e2235;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.settings-modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f2f7;
+}
+
+.dark .settings-modal-header {
+  border-bottom-color: #2d3452;
+}
+
+.settings-modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.dark .settings-modal-header h3 {
+  color: #e2e8f0;
+}
+
+.settings-modal-body {
+  padding: 20px 24px;
+}
+
+.settings-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  background: #f8fafc;
+  border-top: 1px solid #f0f2f7;
+}
+
+.dark .settings-modal-actions {
+  background: #161a29;
+  border-top-color: #2d3452;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}

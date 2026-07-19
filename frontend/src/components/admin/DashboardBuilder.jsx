@@ -107,7 +107,7 @@ function DashboardBuilder() {
                   <strong>{w.title}</strong>
                   <div style={{ fontSize: 12, color: '#64748b' }}>Type: {w.type}</div>
                 </div>
-                <button className="admin-btn" style={{ background: '#3b82f6', padding: '5px 10px' }} onClick={() => handleAddWidget(w)}>
+                <button className="admin-btn" style={{ background: '#3b82f6', color: 'white', padding: '5px 10px' }} onClick={() => handleAddWidget(w)}>
                   + Add
                 </button>
               </div>
@@ -118,7 +118,7 @@ function DashboardBuilder() {
         <div style={{ flex: 2, background: '#f1f5f9', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3>Current Dashboard Layout</h3>
-            <button className="admin-btn" style={{ background: '#10b981' }} onClick={handleSave}>Save Layout</button>
+            <button className="admin-btn" style={{ background: '#10b981', color: 'white' }} onClick={handleSave}>Save Layout</button>
           </div>
           
           {loading ? <p>Loading...</p> : (

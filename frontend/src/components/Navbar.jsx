@@ -1,15 +1,20 @@
-// frontend/src/components/Navbar.jsx
+import { ROLES, isRole } from '../utils/roles';
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { jwtDecode } from "jwt-decode";
 import NotificationBell from './NotificationBell';
 import './Navbar.css';
 
 function Navbar() {
   const navigate = useNavigate();
+  const location = useLocation();
+  
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
   const [userRole, setUserRole] = useState(localStorage.getItem('userRole'));
+  const [userEmail, setUserEmail] = useState(localStorage.getItem('userEmail'));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+
 
   useEffect(() => {
     // Listen for changes to localStorage (e.g., login/logout in other tabs) and custom authChanged event
@@ -25,6 +30,9 @@ function Navbar() {
           role = decoded.role;
           // Store it in localStorage for future use
           localStorage.setItem('userRole', role);
+          if (decoded.email) {
+            localStorage.setItem('userEmail', decoded.email);
+          }
         } catch (error) {
           console.error('Error decoding token:', error);
         }
@@ -32,6 +40,7 @@ function Navbar() {
 
       console.log('Navbar: Current user role:', role); // Debug log
       setUserRole(role);
+      setUserEmail(localStorage.getItem('userEmail'));
     };
     window.addEventListener('storage', handleStorage);
     window.addEventListener('authChanged', handleStorage);
@@ -51,16 +60,12 @@ function Navbar() {
     setIsMobileMenuOpen(false);
   };
 
-  const handleLogout = () => {
-    // Clear all auth/user info from localStorage
-    localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
-    setIsLoggedIn(false);
-    setUserRole(null);
-    navigate('/login');
-  };
+
+
+  // Hide Navbar on these routes (Must be below all hooks!)
+  if (['/login', '/register', '/welcome', '/'].includes(location.pathname)) {
+    return null;
+  }
 
   return (
     <nav className="navbar">
@@ -92,25 +97,19 @@ function Navbar() {
       <div className={`nav-links ${isMobileMenuOpen ? 'active' : ''}`}>
         {isLoggedIn ? (
           <>
-            {/* Hide Dashboard from Principal and Admin users */}
-            {!(userRole === 'Principal' || userRole === 'principal' || userRole === 'admin' || userRole === 'Admin') && (
+            {/* Show respective Dashboard based on role */}
+            {isRole(userRole, ROLES.PRINCIPAL) ? (
+              <Link to="/principal" onClick={closeMobileMenu}>Dashboard</Link>
+            ) : (
               <Link to="/dashboard" onClick={closeMobileMenu}>Dashboard</Link>
             )}
-            <Link to="/ProfilePage" onClick={closeMobileMenu}>Profile</Link>
             <Link to="/settings" onClick={closeMobileMenu}>Settings</Link>
             {/* Hide New Submission for Principal users since they only review forms */}
-            {!(userRole === 'Principal' || userRole === 'principal') && (
+            {!(isRole(userRole, ROLES.PRINCIPAL)) && (
               <Link to="/submission/new" onClick={closeMobileMenu}>New Submission</Link>
             )}
-            {userRole === 'admin' && (
-              <Link to="/admin" onClick={closeMobileMenu}>Admin</Link>
-            )}
-            {/* Principal Panel - Only show for Principal role */}
-            {(userRole === 'Principal' || userRole === 'principal') && (
-              <Link to="/principal" onClick={closeMobileMenu}>Principal Panel</Link>
-            )}
             <NotificationBell />
-            <button onClick={handleLogout} className="logout-btn">Logout</button>
+            <Link to="/ProfilePage" onClick={closeMobileMenu}>Profile</Link>
           </>
         ) : null}
       </div>

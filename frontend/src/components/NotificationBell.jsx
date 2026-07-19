@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Badge,
     IconButton,
@@ -21,6 +22,7 @@ const NotificationBell = () => {
     const [anchorEl, setAnchorEl] = useState(null);
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
+    const [showPopup, setShowPopup] = useState(false);
     const navigate = useNavigate();
     const token = localStorage.getItem('token');
 
@@ -58,6 +60,13 @@ const NotificationBell = () => {
         const interval = setInterval(fetchNotifications, 60000);
         return () => clearInterval(interval);
     }, [email]);
+
+    useEffect(() => {
+        if (unreadCount > 0 && !sessionStorage.getItem('notifiedLogin')) {
+            setShowPopup(true);
+            sessionStorage.setItem('notifiedLogin', 'true');
+        }
+    }, [unreadCount]);
 
     const handleClick = (event) => {
         setAnchorEl(event.currentTarget);
@@ -173,6 +182,69 @@ const NotificationBell = () => {
                     ))
                 )}
             </Menu>
+            
+            {showPopup && createPortal(
+                <div style={{
+                  position: 'fixed',
+                  top: 0, left: 0, right: 0, bottom: 0,
+                  backgroundColor: 'rgba(0,0,0,0.5)',
+                  zIndex: 10000,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  animation: 'fadeIn 0.3s ease'
+                }}>
+                  <div style={{
+                    background: 'white',
+                    padding: '32px',
+                    borderRadius: '16px',
+                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                    textAlign: 'center',
+                    maxWidth: '400px',
+                    width: '90%',
+                    animation: 'slideUp 0.4s ease'
+                  }}>
+                    <div style={{
+                      background: '#e0e7ff',
+                      color: '#4f46e5',
+                      width: '64px',
+                      height: '64px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 16px',
+                      fontSize: '32px'
+                    }}>
+                      🔔
+                    </div>
+                    <h2 style={{ margin: '0 0 12px 0', color: '#111827', fontSize: '24px' }}>New Notifications!</h2>
+                    <p style={{ margin: '0 0 24px 0', color: '#4b5563', fontSize: '16px' }}>
+                      You have <strong>{unreadCount}</strong> new {unreadCount === 1 ? 'notification' : 'notifications'} waiting for you.
+                    </p>
+                    <button 
+                      onClick={() => setShowPopup(false)}
+                      style={{
+                        background: '#4f46e5',
+                        color: 'white',
+                        border: 'none',
+                        padding: '12px 24px',
+                        borderRadius: '8px',
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        width: '100%',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseOver={e => e.target.style.background = '#4338ca'}
+                      onMouseOut={e => e.target.style.background = '#4f46e5'}
+                    >
+                      Got it!
+                    </button>
+                  </div>
+                </div>,
+                document.body
+            )}
         </>
     );
 };

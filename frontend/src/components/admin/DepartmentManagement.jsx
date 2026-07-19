@@ -70,7 +70,7 @@ function DepartmentManagement() {
             style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #ddd' }} 
           />
         </div>
-        <button type="submit" className="admin-btn" style={{ background: '#3b82f6', height: '42px' }}>Add Department</button>
+        <button type="submit" className="admin-btn" style={{ background: '#3b82f6', color: 'white', height: '42px' }}>Add Department</button>
       </form>
 
       <div style={{ background: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>

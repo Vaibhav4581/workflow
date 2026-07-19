@@ -84,6 +84,9 @@ function AdminPanel() {
   // Combine all forms for display
   const allForms = [...facultyForms, ...studentForms];
 
+  // Confirm Dialog State
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
+
   // Add User form state
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -92,22 +95,139 @@ function AdminPanel() {
     email: '',
     password: '',
     role: 'Student',
-    department: 'CSE'
+    department: 'CSE',
+    year: '',
+    div: ''
   });
 
+  // Bulk Selection State
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [selectedForms, setSelectedForms] = useState([]);
+
+  // Users Bulk Handlers
+  const handleSelectAllUsers = (e) => {
+    if (e.target.checked) {
+      setSelectedUsers(users.filter(u => u.role !== 'Admin').map(u => u.email));
+    } else {
+      setSelectedUsers([]);
+    }
+  };
+
+  const handleSelectUser = (email) => {
+    setSelectedUsers(prev => 
+      prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]
+    );
+  };
+
+  const handleBulkDeleteUsers = async () => {
+    if (selectedUsers.length === 0) return;
+    setConfirmDialog({
+      isOpen: true,
+      message: `Are you sure you want to delete ${selectedUsers.length} users?`,
+      onConfirm: async () => {
+        let successCount = 0;
+        for (const email of selectedUsers) {
+          try {
+            await axios.delete(`/deleteUser/${email}`);
+            successCount++;
+          } catch (err) {
+            console.error(`Failed to delete ${email}`);
+          }
+        }
+        alert(`Successfully deleted ${successCount} out of ${selectedUsers.length} users.`);
+        setSelectedUsers([]);
+        fetchUsers();
+      }
+    });
+  };
+
+  // Forms Bulk Handlers
+  const handleSelectAllForms = (e) => {
+    if (e.target.checked) {
+      setSelectedForms(allForms.map(f => ({ id: f._id, type: f.type })));
+    } else {
+      setSelectedForms([]);
+    }
+  };
+
+  const handleSelectForm = (id, type) => {
+    setSelectedForms(prev => {
+      const exists = prev.some(f => f.id === id);
+      if (exists) return prev.filter(f => f.id !== id);
+      return [...prev, { id, type }];
+    });
+  };
+
+  const handleBulkDeleteForms = async () => {
+    if (selectedForms.length === 0) return;
+    
+    setConfirmDialog({
+      isOpen: true,
+      message: `Are you sure you want to delete ${selectedForms.length} forms?`,
+      onConfirm: async () => {
+        try {
+          const token = jwtDecode(localStorage.getItem('token'));
+          let successCount = 0;
+          
+          for (const { id, type } of selectedForms) {
+            try {
+              await axios.delete('/deleteForm', {
+                data: { formId: id, formType: type, userEmail: token.email, userRole: token.role }
+              });
+              successCount++;
+            } catch (err) {
+              console.error(`Failed to delete form ${id}`);
+            }
+          }
+          
+          alert(`Successfully deleted ${successCount} out of ${selectedForms.length} forms.`);
+          
+          // Update state
+          setFacultyForms(prev => prev.filter(f => !selectedForms.some(s => s.id === f._id && s.type === 'faculty')));
+          setStudentForms(prev => prev.filter(f => !selectedForms.some(s => s.id === f._id && s.type === 'student')));
+          setSelectedForms([]);
+        } catch (err) {
+          alert('Failed bulk deletion.');
+        }
+      }
+    });
+  };
+
+  const handleClearAllHistory = async () => {
+    setConfirmDialog({
+      isOpen: true,
+      message: 'Are you absolutely sure you want to clear all form history? This action CANNOT be undone and will delete every submission.',
+      onConfirm: async () => {
+        try {
+          await axios.delete('/clearAllForms');
+          setFacultyForms([]);
+          setStudentForms([]);
+          setSelectedForms([]);
+          alert('All form history cleared successfully!');
+        } catch (error) {
+          console.error('Error clearing history:', error);
+          alert('Failed to clear history.');
+        }
+      }
+    });
+  };
 
   // User management actions
   const handleDeleteUser = async (email) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      try {
-        await axios.delete(`/deleteUser/${email}`);
-        const updated = users.filter(u => u.email !== email);
-        setUsers(updated);
-      } catch (err) {
-        console.error('Failed to delete user:', err);
-        alert('Failed to delete user');
+    setConfirmDialog({
+      isOpen: true,
+      message: 'Are you sure you want to delete this user?',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`/deleteUser/${email}`);
+          const updated = users.filter(u => u.email !== email);
+          setUsers(updated);
+        } catch (err) {
+          console.error('Failed to delete user:', err);
+          alert('Failed to delete user');
+        }
       }
-    }
+    });
   };
 
   // Edit User state and actions
@@ -152,8 +272,18 @@ function AdminPanel() {
     e.preventDefault();
     
     // Validation
-    if (!newUser.fName || !newUser.lName || !newUser.email || !newUser.password || !newUser.department) {
+    const noDeptRoles = ['admin', 'principal', 'manager'];
+    const roleForCheck = (newUser.role || '').toLowerCase();
+    const isDeptRequired = !noDeptRoles.includes(roleForCheck);
+    const requiresYearDiv = ['student', 'faculty advisor', 'facultyadvisor'].includes(roleForCheck);
+    
+    if (!newUser.fName || !newUser.lName || !newUser.email || !newUser.password || (isDeptRequired && !newUser.department)) {
       alert('Please fill in all required fields');
+      return;
+    }
+    
+    if (requiresYearDiv && (!newUser.year || !newUser.div)) {
+      alert('Please provide year and division for Student/Faculty Advisor roles.');
       return;
     }
     
@@ -195,36 +325,40 @@ function AdminPanel() {
 
   // Form management actions
   const handleDeleteForm = async (formId, formType) => {
-    if (window.confirm('Are you sure you want to delete this form? This action cannot be undone.')) {
-      try {
-        // Get user info from localStorage
-        const token = jwtDecode(localStorage.getItem('token'));
-        const userEmail = token.email;
-        const userRole = token.role;
+    setConfirmDialog({
+      isOpen: true,
+      message: 'Are you sure you want to delete this form? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          // Get user info from localStorage
+          const token = jwtDecode(localStorage.getItem('token'));
+          const userEmail = token.email;
+          const userRole = token.role;
 
-        await axios.delete('/deleteForm', {
-          data: { formId, formType, userEmail, userRole }
-        });
-        
-        // Update local state after successful deletion
-        if (formType === 'faculty') {
-          setFacultyForms(prev => prev.filter(form => form._id !== formId));
-        } else {
-          setStudentForms(prev => prev.filter(form => form._id !== formId));
-        }
-        
-        alert('Form deleted successfully!');
-      } catch (error) {
-        console.error('Error deleting form:', error);
-        if (error.response?.status === 403) {
-          alert('You can only delete your own forms.');
-        } else if (error.response?.status === 400) {
-          alert(error.response.data || 'Only forms with "awaiting" status can be deleted.');
-        } else {
-          alert('Failed to delete form. Please try again.');
+          await axios.delete('/deleteForm', {
+            data: { formId, formType, userEmail, userRole }
+          });
+          
+          // Update local state after successful deletion
+          if (formType === 'faculty') {
+            setFacultyForms(prev => prev.filter(form => form._id !== formId));
+          } else {
+            setStudentForms(prev => prev.filter(form => form._id !== formId));
+          }
+          
+          alert('Form deleted successfully!');
+        } catch (error) {
+          console.error('Error deleting form:', error);
+          if (error.response?.status === 403) {
+            alert('You can only delete your own forms.');
+          } else if (error.response?.status === 400) {
+            alert(error.response.data || 'Only forms with "awaiting" status can be deleted.');
+          } else {
+            alert('Failed to delete form. Please try again.');
+          }
         }
       }
-    }
+    });
   };
 
   // Admin settings actions
@@ -274,7 +408,18 @@ function AdminPanel() {
                   {section === 'users' && (
               <div className="admin-section">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' }}>
-                <h2>User Management</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  <h2>User Management</h2>
+                  {selectedUsers.length > 0 && (
+                    <button 
+                      className="admin-btn" 
+                      style={{ background: '#ef4444', color: 'white', padding: '6px 12px', fontSize: '0.85rem' }}
+                      onClick={handleBulkDeleteUsers}
+                    >
+                      Delete Selected ({selectedUsers.length})
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button 
                     className="admin-btn" 
@@ -403,12 +548,25 @@ function AdminPanel() {
                           <option value="FacultyAdvisor">Faculty Advisor</option>
                           <option value="HOD">HOD</option>
                           <option value="Principal">Principal</option>
+                          <option value="JuniorSuperintendent">Junior Superintendent</option>
+                          <option value="CFO">CFO</option>
+                          <option value="Manager">Manager</option>
+                          <option value="AO">Administrative Officer (AO)</option>
+                          <option value="TransportinCharge">Transport in Charge</option>
+                          <option value="VicePrincipal">Vice Principal</option>
+                          <option value="CollegeCouncil">College Council</option>
+                          <option value="MaintenanceSection">Maintenance Section</option>
+                          <option value="AccountsSection">Accounts Section</option>
+                          <option value="HRSection">HR Section</option>
+                          <option value="Driver">Driver</option>
+                          <option value="Staff">Staff</option>
                           <option value="Admin">Admin</option>
                           {dynamicRoles.map(r => (
                             <option key={r} value={r}>{r}</option>
                           ))}
                         </select>
                       </div>
+                      {(!['admin', 'principal', 'manager'].includes((newUser.role || '').toLowerCase())) && (
                       <div>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '14px' }}>
                           Department *
@@ -448,7 +606,51 @@ function AdminPanel() {
                           ))}
                         </select>
                       </div>
+                      )}
                     </div>
+                    
+                    {(['student', 'faculty advisor', 'facultyadvisor'].includes((newUser.role || '').toLowerCase())) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '14px' }}>
+                          Year *
+                        </label>
+                        <input
+                          type="number"
+                          name="year"
+                          value={newUser.year}
+                          onChange={handleInputChange}
+                          required
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '14px'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '14px' }}>
+                          Division *
+                        </label>
+                        <input
+                          type="text"
+                          name="div"
+                          value={newUser.div}
+                          onChange={handleInputChange}
+                          required
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '14px'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    )}
                     
                     <div style={{ display: 'flex', gap: '12px' }}>
                       <button 
@@ -474,6 +676,13 @@ function AdminPanel() {
               <table className="admin-table">
                 <thead>
                   <tr>
+                    <th style={{ width: '40px' }}>
+                      <input 
+                        type="checkbox" 
+                        onChange={handleSelectAllUsers}
+                        checked={users.length > 0 && users.filter(u => u.role !== 'Admin').length === selectedUsers.length && selectedUsers.length > 0}
+                      />
+                    </th>
                     <th>Name</th>
                     <th>Email</th>
                     <th>Role</th>
@@ -487,36 +696,84 @@ function AdminPanel() {
                   {users.map(u => (
                     <tr key={u.email} style={{ background: u.role === 'Admin' ? '#e0e7ef' : 'inherit' }}>
                       <td>
-                        {editingEmail === u.email ? (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <input value={editValues.fName} onChange={e => setEditValues(v => ({ ...v, fName: e.target.value }))} style={{ width: 100 }} />
-                            <input value={editValues.lName} onChange={e => setEditValues(v => ({ ...v, lName: e.target.value }))} style={{ width: 100 }} />
-                          </div>
-                        ) : (
-                          <>{u.fName || '-'} {u.lName || ''}</>
+                        {u.role !== 'Admin' && (
+                          <input 
+                            type="checkbox" 
+                            checked={selectedUsers.includes(u.email)}
+                            onChange={() => handleSelectUser(u.email)}
+                          />
                         )}
                       </td>
+                      <td>{u.fName || '-'} {u.lName || ''}</td>
                       <td>{u.email}</td>
+                      <td>{u.role}</td>
+                      <td>{u.department || 'N/A'}</td>
+                      <td>{u.year ?? ''}</td>
+                      <td>{u.div || ''}</td>
                       <td>
-                        {editingEmail === u.email ? (
-                          <select value={editValues.role} onChange={e => setEditValues(v => ({ ...v, role: e.target.value }))}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button className="admin-btn" onClick={() => startEditUser(u)}>Edit</button>
+                          {u.role !== 'Admin' && (
+                            <button className="admin-btn admin-btn-danger" onClick={() => handleDeleteUser(u.email)}>Delete</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {users.length === 0 && (
+                <div className="no-data">No users found.</div>
+              )}
+              
+              {/* Edit User Modal */}
+              {editingEmail && (
+                <div className="admin-modal-overlay">
+                  <div className="admin-modal">
+                    <h2>Edit User</h2>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <div style={{ flex: 1 }}>
+                          <label>First Name</label>
+                          <input className="settings-input" value={editValues.fName} onChange={e => setEditValues(v => ({ ...v, fName: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label>Last Name</label>
+                          <input className="settings-input" value={editValues.lName} onChange={e => setEditValues(v => ({ ...v, lName: e.target.value }))} />
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <div style={{ flex: 1 }}>
+                          <label>Role</label>
+                          <select className="settings-input" value={editValues.role} onChange={e => setEditValues(v => ({ ...v, role: e.target.value }))}>
                             <option value="Student">Student</option>
                             <option value="Faculty">Faculty</option>
                             <option value="FacultyAdvisor">Faculty Advisor</option>
                             <option value="HOD">HOD</option>
                             <option value="Principal">Principal</option>
+                            <option value="JuniorSuperintendent">Junior Superintendent</option>
+                            <option value="CFO">CFO</option>
+                            <option value="Manager">Manager</option>
+                            <option value="AO">Administrative Officer (AO)</option>
+                            <option value="TransportinCharge">Transport in Charge</option>
+                            <option value="VicePrincipal">Vice Principal</option>
+                            <option value="CollegeCouncil">College Council</option>
+                            <option value="MaintenanceSection">Maintenance Section</option>
+                            <option value="AccountsSection">Accounts Section</option>
+                            <option value="HRSection">HR Section</option>
+                            <option value="Driver">Driver</option>
+                            <option value="Staff">Staff</option>
                             <option value="Admin">Admin</option>
                             {dynamicRoles.map(r => (
                               <option key={r} value={r}>{r}</option>
                             ))}
                           </select>
-                        ) : (
-                          u.role
-                        )}
-                      </td>
-                      <td>
-                        {editingEmail === u.email ? (
-                          <select value={editValues.department} onChange={e => setEditValues(v => ({ ...v, department: e.target.value }))}>
+                        </div>
+                        {(!['admin', 'principal', 'manager'].includes((editValues.role || '').toLowerCase())) && (
+                        <div style={{ flex: 1 }}>
+                          <label>Department</label>
+                          <select className="settings-input" value={editValues.department} onChange={e => setEditValues(v => ({ ...v, department: e.target.value }))}>
                             <option value="CSE">CSE</option>
                             <option value="NASB">NASB</option>
                             <option value="ECE">ECE</option>
@@ -527,45 +784,30 @@ function AdminPanel() {
                             <option value="CS">CS</option>
                             <option value="MCA">MCA</option>
                           </select>
-                        ) : (
-                          u.department || 'N/A'
+                        </div>
                         )}
-                      </td>
-                      <td>
-                        {editingEmail === u.email ? (
-                          <input value={editValues.year} onChange={e => setEditValues(v => ({ ...v, year: e.target.value }))} style={{ width: 60 }} />
-                        ) : (
-                          u.year ?? ''
-                        )}
-                      </td>
-                      <td>
-                        {editingEmail === u.email ? (
-                          <input value={editValues.div} onChange={e => setEditValues(v => ({ ...v, div: e.target.value }))} style={{ width: 60 }} />
-                        ) : (
-                          u.div || ''
-                        )}
-                      </td>
-                      <td>
-                        {editingEmail === u.email ? (
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <button className="admin-btn" style={{ background: '#22c55e' }} onClick={() => saveEditUser(u.email)}>Save</button>
-                            <button className="admin-btn" style={{ background: '#6b7280' }} onClick={cancelEditUser}>Cancel</button>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <button className="admin-btn" onClick={() => startEditUser(u)}>Edit</button>
-                            {u.role !== 'Admin' && (
-                              <button className="admin-btn" onClick={() => handleDeleteUser(u.email)}>Delete</button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {users.length === 0 && (
-                <div className="no-data">No users found.</div>
+                      </div>
+
+                      {(['student', 'faculty advisor', 'facultyadvisor'].includes((editValues.role || '').toLowerCase())) && (
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <div style={{ flex: 1 }}>
+                          <label>Year</label>
+                          <input type="number" className="settings-input" value={editValues.year} onChange={e => setEditValues(v => ({ ...v, year: e.target.value }))} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label>Division</label>
+                          <input className="settings-input" value={editValues.div} onChange={e => setEditValues(v => ({ ...v, div: e.target.value }))} />
+                        </div>
+                      </div>
+                      )}
+                    </div>
+                    
+                    <div className="modal-actions" style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
+                      <button className="admin-btn" style={{ background: '#6b7280' }} onClick={cancelEditUser}>Cancel</button>
+                      <button className="admin-btn" style={{ background: '#3b82f6' }} onClick={() => saveEditUser(editingEmail)}>Save Changes</button>
+                    </div>
+                  </div>
+                </div>
               )}
               
               <div style={{ marginTop: '30px' }}>
@@ -580,7 +822,7 @@ function AdminPanel() {
                 <div className="loading">Loading forms...</div>
               ) : (
                 <>
-                  <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     <span style={{ 
                       background: '#f1f5f9', 
                       padding: '4px 12px', 
@@ -605,10 +847,35 @@ function AdminPanel() {
                     }}>
                       Student: {studentForms.length}
                     </span>
+                    {selectedForms.length > 0 && (
+                      <button 
+                        className="admin-btn" 
+                        style={{ background: '#ef4444', color: 'white', padding: '6px 12px', fontSize: '0.85rem' }}
+                        onClick={handleBulkDeleteForms}
+                      >
+                        Delete Selected ({selectedForms.length})
+                      </button>
+                    )}
+                    {allForms.length > 0 && (
+                      <button 
+                        className="admin-btn" 
+                        style={{ background: '#b91c1c', color: 'white', padding: '6px 12px', fontSize: '0.85rem', marginLeft: 'auto' }}
+                        onClick={handleClearAllHistory}
+                      >
+                        Clear All History
+                      </button>
+                    )}
                   </div>
-                  <table className="admin-table">
+                  <div style={{ width: "100%", overflowX: "auto", borderRadius: "8px" }}><table className="admin-table">
                     <thead>
                       <tr>
+                        <th style={{ width: '40px' }}>
+                          <input 
+                            type="checkbox" 
+                            onChange={handleSelectAllForms}
+                            checked={allForms.length > 0 && selectedForms.length === allForms.length}
+                          />
+                        </th>
                         <th>Form No</th>
                         <th>Type</th>
                         <th>Category</th>
@@ -623,6 +890,13 @@ function AdminPanel() {
                     <tbody>
                       {allForms.map(form => (
                         <tr key={form._id}>
+                          <td>
+                            <input 
+                              type="checkbox" 
+                              checked={selectedForms.some(f => f.id === form._id)}
+                              onChange={() => handleSelectForm(form._id, form.type)}
+                            />
+                          </td>
                           <td>#{form.formNo}</td>
                           <td>
                             <span style={{ 
@@ -668,7 +942,7 @@ function AdminPanel() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </table></div>
                   {allForms.length === 0 && (
                     <div className="no-data">
                       No forms found.
@@ -755,6 +1029,35 @@ function AdminPanel() {
           {section === 'departments' && <DepartmentManagement />}
         </div>
       </div>
+      
+      {/* Custom Confirm Dialog Modal */}
+      {confirmDialog.isOpen && (
+        <div className="admin-modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="admin-modal" style={{ maxWidth: '400px', textAlign: 'center', padding: '30px' }}>
+            <h3 style={{ marginTop: 0, marginBottom: '15px', color: '#1f2937' }}>Confirm Action</h3>
+            <p style={{ color: '#4b5563', marginBottom: '25px', lineHeight: '1.5' }}>{confirmDialog.message}</p>
+            <div className="modal-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button 
+                className="admin-btn" 
+                style={{ background: '#6b7280', color: '#ffffff', flex: 1, fontWeight: 'bold' }} 
+                onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: null })}
+              >
+                Cancel
+              </button>
+              <button 
+                className="admin-btn" 
+                style={{ background: '#ef4444', color: '#ffffff', flex: 1, fontWeight: 'bold' }}
+                onClick={() => {
+                  if(confirmDialog.onConfirm) confirmDialog.onConfirm();
+                  setConfirmDialog({ isOpen: false, message: '', onConfirm: null });
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

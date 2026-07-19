@@ -1,9 +1,11 @@
 // frontend/src/pages/PrincipalPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { customConfirm } from '../utils/customConfirm';
 import { jwtDecode } from "jwt-decode";
 import axios from 'axios';
 import Archive from './Archive';
+import { getNextReceiver } from '../utils/hierarchy';
 import './PrincipalPage.css';
 
 const statusColors = {
@@ -119,48 +121,48 @@ function PrincipalPage() {
   };
 
   // Handle accept action
-  const handleAccept = () => {
-    if (window.confirm('Are you sure you want to accept this form?')) {
+  const handleAccept = async () => {
+    if (await customConfirm('Are you sure you want to accept this form?')) {
       handleFormAction('accepted', remarks);
     }
   };
 
   // Handle reject action
-  const handleReject = () => {
+  const handleReject = async () => {
     if (!remarks.trim()) {
       alert('Please provide remarks when rejecting a form.');
       return;
     }
-    if (window.confirm('Are you sure you want to reject this form?')) {
+    if (await customConfirm('Are you sure you want to reject this form?')) {
       handleFormAction('rejected', remarks);
     }
   };
 
   // Handle request edit action
-  const handleRequestEdit = () => {
+  const handleRequestEdit = async () => {
     if (!remarks.trim()) {
       alert('Please provide remarks when requesting edits.');
       return;
     }
-    if (window.confirm('Are you sure you want to request edits for this form?')) {
+    if (await customConfirm('Are you sure you want to request edits for this form?')) {
       handleFormAction('edit', remarks);
     }
   };
 
   // Handle forward action
-  const handleForward = () => {
+  const handleForward = async () => {
     if (!forwardTo) {
       alert('Please select someone to forward to.');
       return;
     }
-    if (window.confirm(`Are you sure you want to forward this form to ${forwardTo}?`)) {
+    if (await customConfirm(`Are you sure you want to forward this form to ${forwardTo}?`)) {
       handleFormAction('forwarded', remarks);
     }
   };
 
   // Handler for quick status changes (legacy)
   const handleQuickStatusChange = async (form, newStatus, defaultRemarks) => {
-    if (!window.confirm(`Are you sure you want to ${newStatus} this form?`)) {
+    if (!(await customConfirm(`Are you sure you want to ${newStatus} this form?`))) {
       return;
     }
 
@@ -260,37 +262,47 @@ function PrincipalPage() {
         <p className="principal-subtitle">Review and manage all forms submitted to you</p>
       </div>
 
-      {/* View Mode Toggle and Refresh */}
-      <div className="view-controls">
-        <div className="view-toggle">
+      {/* View Mode Toggle */}
+      <div style={{ maxWidth: '1400px', margin: '0 auto 24px auto' }}>
+        <div className="view-toggle-container" style={{ display: 'inline-flex', background: 'var(--card-bg)', padding: '4px', borderRadius: '12px', border: '1px solid var(--border-color, rgba(0,0,0,0.05))', boxShadow: 'var(--shadow-sm)' }}>
           <button
             onClick={() => setViewMode('current')}
-            className={viewMode === 'current' ? 'active' : ''}
+            style={{ padding: '8px 24px', borderRadius: '8px', border: 'none', background: viewMode === 'current' ? '#3b82f6' : 'transparent', color: viewMode === 'current' ? 'white' : 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}
           >
             Current Forms
           </button>
           <button
             onClick={() => setViewMode('archived')}
-            className={viewMode === 'archived' ? 'active' : ''}
+            style={{ padding: '8px 24px', borderRadius: '8px', border: 'none', background: viewMode === 'archived' ? '#3b82f6' : 'transparent', color: viewMode === 'archived' ? 'white' : 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}
           >
             Form History
           </button>
         </div>
-        {/* <button
-          onClick={handleRefresh}
-          className="refresh-btn"
-          title="Refresh data"
-        >
-          🔄 Refresh
-        </button> */}
       </div>
 
-      {viewMode === 'current' ? (
+      {viewMode === 'current' ? (() => {
+        const userRoleLower = userRole ? userRole.toLowerCase() : '';
+        const isFormForwardedByUser = (form) => {
+          const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
+          return userActions.some(h => h.action.toLowerCase().includes('forwarded'));
+        };
+
+        const pendingReceivedForms = receivedSubmissions.filter(s => 
+          !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()) && 
+          !isFormForwardedByUser(s)
+        );
+
+        const forwardedForms = receivedSubmissions.filter(s => 
+          !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()) && 
+          isFormForwardedByUser(s)
+        );
+
+        return (
         <div className="principal-content" style={{ display: 'flex', gap: '24px' }}>
           <div className="received-forms-section" style={{ flex: 1 }}>
             <h2>Received Forms</h2>
             <div className="submissions-table">
-              {receivedSubmissions.filter(s => !['accepted', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase())).length === 0 ? (
+              {pendingReceivedForms.length === 0 ? (
                 <div className="no-forms">
                   <div className="no-forms-icon">📋</div>
                   <h3>No forms received yet</h3>
@@ -307,13 +319,10 @@ function PrincipalPage() {
                       <th>Status</th>
                       <th>Date</th>
                       <th>Actions</th>
-                      <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {receivedSubmissions
-                      .filter(s => !['accepted', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()))
-                      .map((submission, idx) => (
+                    {pendingReceivedForms.map((submission, idx) => (
                       <tr key={submission._id || submission.id || idx}>
                         <td>#{submission.formNo || submission.id || submission._id}</td>
                         <td>{submission.subject}</td>
@@ -342,7 +351,7 @@ function PrincipalPage() {
                           <div className="action-buttons" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                             <button
                               className="view-btn"
-                              onClick={() => navigate(`/submission/${submission._id || submission.id}`)}
+                              onClick={() => navigate(`/received-forms/${submission._id || submission.id}`)}
                               style={{
                                 padding: '4px 8px',
                                 fontSize: '0.75rem',
@@ -365,7 +374,7 @@ function PrincipalPage() {
                               style={{ 
                                 padding: '4px 8px', 
                                 fontSize: '0.75rem',
-                                background: selectedForm?._id === submission._id ? '#8b5cf6' : '#6b7280',
+                                background: selectedForm?._id === submission._id ? '#8b5cf6' : 'var(--text-secondary)',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
@@ -377,14 +386,98 @@ function PrincipalPage() {
                             </button>
                           </div>
                         </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <span
-                            className="status-dot"
-                            style={{
-                              background: statusColors[submission.status?.toLowerCase?.()] || '#888',
-                            }}
-                            title={submission.status}
-                          />
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <h2 style={{ marginTop: 40 }}>Forwarded Forms</h2>
+            <div className="submissions-table">
+              {forwardedForms.length === 0 ? (
+                <div className="no-forms">
+                  <div className="no-forms-icon">📋</div>
+                  <h3>No forwarded forms</h3>
+                  <p>Forms you forward will appear here</p>
+                </div>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Form No</th>
+                      <th>Subject</th>
+                      <th>Department</th>
+                      <th>Submitted By</th>
+                      <th>Status</th>
+                      <th>Date</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forwardedForms.map((submission, idx) => (
+                      <tr key={submission._id || submission.id || idx}>
+                        <td>#{submission.formNo || submission.id || submission._id}</td>
+                        <td>{submission.subject}</td>
+                        <td>{submission.department}</td>
+                        <td>
+                          <div className="submitter-info">
+                            <span className="submitter-name">{submission.submittedBy}</span>
+                            <span className="submitter-role">{submission.owner}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`status ${submission.status?.toLowerCase?.() || ''}`}>
+                            {submission.status}
+                          </span>
+                        </td>
+                        <td>
+                          {submission.createdAt 
+                            ? new Date(submission.createdAt).toLocaleString() 
+                            : (submission.date 
+                                ? new Date(submission.date).toLocaleDateString() 
+                                : 'N/A'
+                              )
+                          }
+                        </td>
+                        <td>
+                          <div className="action-buttons" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <button
+                              className="view-btn"
+                              onClick={() => navigate(`/received-forms/${submission._id || submission.id}`)}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '0.75rem',
+                                background: '#3b82f6',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              View
+                            </button>
+                            <button
+                              className="select-btn"
+                              onClick={() => {
+                                setSelectedForm(submission);
+                                setRemarks(submission.remarks || '');
+                                setForwardTo('');
+                              }}
+                              style={{ 
+                                padding: '4px 8px', 
+                                fontSize: '0.75rem',
+                                background: selectedForm?._id === submission._id ? '#8b5cf6' : 'var(--text-secondary)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                              }}
+                              title="Select for detailed review"
+                            >
+                              {selectedForm?._id === submission._id ? '✓ Selected' : '📋 Select'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -396,9 +489,9 @@ function PrincipalPage() {
 
           {/* Right-Hand Side Action Panel */}
           <div style={{ 
-            background: '#fff', 
+            background: 'var(--card-bg)', 
             borderRadius: 12, 
-            boxShadow: '0 2px 12px #eee', 
+            boxShadow: 'var(--shadow-md)', 
             padding: 24, 
             width: 320,
             height: 'fit-content',
@@ -407,7 +500,7 @@ function PrincipalPage() {
           }}>
             <h3 style={{ 
               margin: '0 0 20px 0', 
-              color: '#374151', 
+              color: 'var(--text-primary)', 
               fontSize: '1.2rem',
               borderBottom: '2px solid #e5e7eb',
               paddingBottom: 8
@@ -415,41 +508,73 @@ function PrincipalPage() {
               ⚡ Form Actions
             </h3>
             
-            {selectedForm ? (
+            {selectedForm ? (() => {
+              const userRoleLower = userRole ? userRole.toLowerCase() : '';
+              const userActions = selectedForm.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
+              const hasActed = userActions.some(h => 
+                h.action.toLowerCase().includes('forwarded') || 
+                ['accepted', 'approved', 'rejected', 'not_approved'].some(st => h.action.toLowerCase().includes(st))
+              );
+              let actedStatus = 'forwarded';
+              if (hasActed && userActions.length > 0) {
+                const lastAction = userActions[userActions.length - 1].action.toLowerCase();
+                if (lastAction.includes('not_approved')) actedStatus = 'not_approved';
+                else if (lastAction.includes('approved')) actedStatus = 'approved';
+                else if (lastAction.includes('accepted')) actedStatus = 'accepted';
+                else if (lastAction.includes('rejected')) actedStatus = 'rejected';
+              }
+
+              const displayStatus = hasActed ? (statusLabels[actedStatus] || actedStatus) : (selectedForm.status || 'awaiting');
+              const displayColor = hasActed ? (statusColors[actedStatus] || '#888') : (statusColors[selectedForm.status?.toLowerCase?.()] || '#888');
+              
+              return (
               <>
                 {/* Selected Form Info */}
                 <div style={{ 
-                  background: '#f8fafc',
+                  background: 'var(--bg-color)',
                   borderRadius: 8,
                   padding: 16,
                   marginBottom: 20,
                   border: '1px solid #e2e8f0'
                 }}>
-                  <h4 style={{ margin: '0 0 8px 0', color: '#374151', fontSize: '1rem' }}>
+                  <h4 style={{ margin: '0 0 8px 0', color: 'var(--text-primary)', fontSize: '1rem' }}>
                     📋 Selected Form
                   </h4>
-                  <div style={{ fontSize: '0.9rem', color: '#6b7280', lineHeight: 1.5 }}>
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                     <div><strong>Form ID:</strong> #{selectedForm.formNo || selectedForm._id}</div>
                     <div><strong>Subject:</strong> {selectedForm.subject}</div>
                     <div><strong>Department:</strong> {selectedForm.department}</div>
                     <div><strong>Status:</strong> 
                       <span style={{ 
-                        background: statusColors[selectedForm.status?.toLowerCase?.()] || '#888',
+                        background: displayColor,
                         color: 'white',
                         padding: '2px 8px',
                         borderRadius: '4px',
                         fontSize: '0.8rem',
                         marginLeft: '8px'
                       }}>
-                        {selectedForm.status || 'awaiting'}
+                        {displayStatus}
                       </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Action Buttons */}
+                {hasActed ? (
+                  <div style={{ marginBottom: 20, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #d1d5db' }}>
+                    <h4 style={{ margin: '0 0 8px 0', color: '#0f172a' }}>Action Completed</h4>
+                    <p style={{ margin: 0, color: '#334155' }}>
+                      {userActions.length > 0 
+                        ? (userActions[userActions.length - 1].action.toLowerCase().includes('forwarded') 
+                            ? `You have already forwarded to ${userActions[userActions.length - 1].target || 'another role'}.` 
+                            : `You have already ${userActions[userActions.length - 1].action} this form.`)
+                        : 'You have already actioned this form.'}
+                    </p>
+                  </div>
+                ) : (
+                <>
                 <div style={{ marginBottom: 20 }}>
-                  <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '1rem' }}>
                     🎯 Quick Actions
                   </h4>
                   
@@ -521,7 +646,7 @@ function PrincipalPage() {
 
                 {/* Remarks Section */}
                 <div style={{ marginBottom: 20 }}>
-                  <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '1rem' }}>
                     💬 Remarks
                   </h4>
                   <textarea
@@ -535,7 +660,7 @@ function PrincipalPage() {
                       border: '1px solid #d1d5db',
                       borderRadius: 6,
                       fontSize: '0.9rem',
-                      resize: 'vertical',
+                      resize: 'none',
                       fontFamily: 'inherit'
                     }}
                   />
@@ -543,7 +668,7 @@ function PrincipalPage() {
 
                 {/* Forward To Section */}
                 <div style={{ marginBottom: 20 }}>
-                  <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '1rem' }}>
                     📤 Forward To
                   </h4>
                   <select
@@ -555,15 +680,17 @@ function PrincipalPage() {
                       border: '1px solid #d1d5db',
                       borderRadius: 6,
                       fontSize: '0.9rem',
-                      background: 'white'
+                      background: 'var(--card-bg)'
                     }}
                   >
                     <option value="">Select person to forward</option>
-                    <option value="FacultyAdvisor">Faculty Advisor</option>
-                    <option value="HOD">HOD</option>
-                    <option value="Manager">Manager</option>
-                    <option value="Committee">Committee</option>
-                    <option value="Secretary">Secretary</option>
+                    {(() => {
+                      const nextRcv = selectedForm ? getNextReceiver(selectedForm.category || selectedForm.subject, selectedForm.to) : null;
+                      const possibleReceivers = nextRcv ? [nextRcv] : ['FacultyAdvisor', 'HOD', 'Manager', 'Committee', 'Secretary'];
+                      return possibleReceivers.map(receiver => (
+                        <option key={receiver} value={receiver}>{receiver}</option>
+                      ));
+                    })()}
                   </select>
                   
                   {forwardTo && (
@@ -588,6 +715,8 @@ function PrincipalPage() {
                     </button>
                   )}
                 </div>
+                </>
+                )}
 
                 {/* Clear Selection */}
                 <button
@@ -597,7 +726,7 @@ function PrincipalPage() {
                     setForwardTo('');
                   }}
                   style={{
-                    background: '#6b7280',
+                    background: 'var(--text-secondary)',
                     color: 'white',
                     border: 'none',
                     borderRadius: 6,
@@ -611,10 +740,11 @@ function PrincipalPage() {
                   🗑️ Clear Selection
                 </button>
               </>
-            ) : (
+              );
+            })() : (
               <div style={{ 
                 textAlign: 'center', 
-                color: '#6b7280', 
+                color: 'var(--text-secondary)', 
                 padding: '40px 20px',
                 fontSize: '0.9rem'
               }}>
@@ -702,7 +832,8 @@ function PrincipalPage() {
             </div>
           )}
         </div>
-      ) : (
+      );
+    })() : (
         <div className="archived-section">
           <Archive />
         </div>

@@ -66,7 +66,7 @@ export default function PageBuilder() {
           <label>Layout (JSON array)</label><br />
           <textarea name="layout" value={newPage.layout} onChange={handleInputChange} rows={4} style={{ width: '100%' }} placeholder='[{"type":"StatCard","props":{},"colSpan":1}]' />
         </div>
-        <button type="submit" className="admin-btn" style={{ background: '#3b82f6' }}>Create Page</button>
+        <button type="submit" className="admin-btn" style={{ background: '#3b82f6', color: 'white' }}>Create Page</button>
       </form>
 
       <h3>Existing Pages</h3>

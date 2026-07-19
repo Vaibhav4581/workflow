@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
+import { customConfirm } from '../utils/customConfirm';
 import './SettingsPage.css';
 
 export default function SettingsPage() {
@@ -25,6 +26,11 @@ export default function SettingsPage() {
   // --- Clear notifications ---
   const [clearMsg, setClearMsg] = useState(null);
 
+  // --- Role Switch Modal ---
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [roleForm, setRoleForm] = useState({ year: '', div: '' });
+  const [roleLoading, setRoleLoading] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) { navigate('/login'); return; }
@@ -36,6 +42,8 @@ export default function SettingsPage() {
         department: decoded.department || '',
         fName: decoded.fName || '',
         lName: decoded.lName || '',
+        year: decoded.year || '',
+        div: decoded.div || ''
       });
     } catch {
       navigate('/login');
@@ -78,12 +86,13 @@ export default function SettingsPage() {
 
   const handleClearNotifs = async () => {
     setClearMsg(null);
-    if (!window.confirm('Clear all read notifications?')) return;
+    if (!(await customConfirm('Clear all read notifications?'))) return;
     try {
-      await axios.delete('/clearNotifications', { data: { email: userInfo.email } });
+      await axios.delete(`/clearNotifications/${encodeURIComponent(userInfo.email)}`);
       setClearMsg({ type: 'success', text: 'Read notifications cleared.' });
-    } catch {
-      setClearMsg({ type: 'error', text: 'Failed to clear notifications.' });
+    } catch (err) {
+      console.error(err);
+      setClearMsg({ type: 'error', text: err.response?.data?.message || err.message || 'Failed to clear notifications.' });
     }
   };
 
@@ -103,6 +112,25 @@ export default function SettingsPage() {
 
   const displayName = [userInfo.fName, userInfo.lName].filter(Boolean).join(' ') || userInfo.email;
   const skipDept = ['admin', 'principal', 'manager'].includes(userInfo.role?.toLowerCase());
+
+  const handleRoleSwitchSubmit = async (e) => {
+    e?.preventDefault();
+    setRoleLoading(true);
+    try {
+      const res = await axios.put('/updateMyRole', { 
+        email: userInfo.email, 
+        role: 'Faculty Advisor',
+        year: roleForm.year,
+        div: roleForm.div
+      });
+      localStorage.setItem('token', res.data.token);
+      localStorage.setItem('userRole', res.data.role);
+      window.location.reload();
+    } catch(err) {
+      alert(err.response?.data || 'Failed to update role');
+      setRoleLoading(false);
+    }
+  };
 
   return (
     <div className={`settings-page${darkMode ? ' dark' : ''}`}>
@@ -130,6 +158,33 @@ export default function SettingsPage() {
             <span className="info-label">Role</span>
             <span className="info-value">
               <span className="role-badge-settings">{userInfo.role}</span>
+              {(userInfo.role?.toLowerCase() === 'faculty' || userInfo.role?.toLowerCase() === 'faculty advisor' || userInfo.role?.toLowerCase() === 'facultyadvisor') && (
+                <button 
+                  className="settings-btn btn-secondary" 
+                  style={{marginLeft: '15px', padding: '4px 10px', fontSize: '0.85rem', width: 'auto'}}
+                  onClick={async () => {
+                    const isAdvisor = userInfo.role.toLowerCase().includes('advisor');
+                    const newRole = isAdvisor ? 'Faculty' : 'Faculty Advisor';
+                    
+                    if (newRole === 'Faculty Advisor') {
+                      setRoleForm({ year: userInfo.year || '', div: userInfo.div || '' });
+                      setShowRoleModal(true);
+                    } else {
+                      if(!(await customConfirm(`Switch your role to ${newRole}?`))) return;
+                      try {
+                        const res = await axios.put('/updateMyRole', { email: userInfo.email, role: newRole });
+                        localStorage.setItem('token', res.data.token);
+                        localStorage.setItem('userRole', res.data.role);
+                        window.location.reload();
+                      } catch(e) {
+                        alert(e.response?.data || 'Failed to update role');
+                      }
+                    }
+                  }}
+                >
+                  Switch to {userInfo.role.toLowerCase().includes('advisor') ? 'Faculty' : 'Faculty Advisor'}
+                </button>
+              )}
             </span>
           </div>
           {!skipDept && userInfo.department && (
@@ -201,7 +256,7 @@ export default function SettingsPage() {
         <div className="section-body">
           <div className="toggle-row">
             <div className="toggle-info">
-              <h3>Dark Mode</h3>
+              <h3>Dark Mode (Beta)</h3>
               <p>Switch between light and dark theme</p>
             </div>
             <label className="toggle-switch">
@@ -292,6 +347,51 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+
+      {/* Role Switch Modal */}
+      {showRoleModal && (
+        <div className="settings-modal-overlay">
+          <div className="settings-modal">
+            <div className="settings-modal-header">
+              <h3>Faculty Advisor Details</h3>
+            </div>
+            <form onSubmit={handleRoleSwitchSubmit}>
+              <div className="settings-modal-body">
+                <div className="settings-form-group">
+                  <label>Year (e.g., 2023)</label>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={roleForm.year}
+                    onChange={e => setRoleForm(f => ({ ...f, year: e.target.value }))}
+                    placeholder="Enter admission year or batch"
+                    required
+                  />
+                </div>
+                <div className="settings-form-group">
+                  <label>Division</label>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={roleForm.div}
+                    onChange={e => setRoleForm(f => ({ ...f, div: e.target.value }))}
+                    placeholder="e.g., A, B, C"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="settings-modal-actions">
+                <button type="button" className="settings-btn btn-secondary" onClick={() => setShowRoleModal(false)} disabled={roleLoading}>
+                  Cancel
+                </button>
+                <button type="submit" className="settings-btn btn-primary" disabled={roleLoading}>
+                  {roleLoading ? 'Saving...' : 'Switch Role'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

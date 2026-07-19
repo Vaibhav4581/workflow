@@ -526,4 +526,41 @@ body.dark-mode .MuiAutocomplete-paper {
 body.dark-mode .MuiMenuItem-root:hover,
 body.dark-mode .MuiAutocomplete-option:hover { background: #2d3452 !important; }
 
-
+/* ================================================================
+   GLOBAL THEME MODAL
+================================================================ */
+.theme-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.theme-modal {
+  background: var(--card-bg, #ffffff);
+  padding: 32px;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+  animation: slideUp 0.3s ease-out;
+}
+
+body.dark-mode .theme-modal {
+  background: #1e2235;
+  color: #e2e8f0;
+  border: 1px solid #2d3452;
+}
+
+body.dark-mode .theme-modal h2 {
+  color: #a78bfa !important;
+}
+
+body.dark-mode .theme-modal p {
+  color: #cbd5e1 !important;
+}

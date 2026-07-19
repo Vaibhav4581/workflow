@@ -3,6 +3,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { normalizeRole, ROLES, isRole, getRoleQueryArray } = require('./utils/roles');
 require("dotenv").config();
 require('./connection');
 
@@ -130,7 +131,7 @@ app.delete('/api/departments/:id', async (req, res) => {
 // Get all Faculty Forms
 app.get('/getAllFForms', async (req, res) => {
   try {
-    const forms = await fFormModel.find();
+    const forms = await fFormModel.find().select('-attachment -attachments');
     console.log(forms)
     res.send(forms.map(s => ({ ...s.toObject(), owner: 'faculty' })));
   } catch (error) {
@@ -141,7 +142,7 @@ app.get('/getAllFForms', async (req, res) => {
 // Get all Student Forms
 app.get('/getAllSForms', async (req, res) => {
   try {
-    const forms = await sFormModel.find();
+    const forms = await sFormModel.find().select('-attachment -attachments');
     console.log(forms)
     res.send(forms.map(s => ({ ...s.toObject(), owner: 'student' })));
   } catch (error) {
@@ -153,7 +154,7 @@ app.get('/getAllSForms', async (req, res) => {
 app.get('/getSFormsByUser', async (req, res) => {
   const { email } = req.query;
   try {
-    const forms = await sFormModel.find({ submittedBy: email });
+    const forms = await sFormModel.find().select('-attachment -attachments');
     res.send(forms.map(s => ({ ...s.toObject(), owner: 'student' })));
   } catch (error) {
     console.log(error);
@@ -164,7 +165,7 @@ app.get('/getSFormsByUser', async (req, res) => {
 app.get('/getFFormsByUser', async (req, res) => {
   const { email } = req.query;
   try {
-    const forms = await fFormModel.find({ submittedBy: email });
+    const forms = await fFormModel.find().select('-attachment -attachments');
     res.send(forms.map(s => ({ ...s.toObject(), owner: 'faculty' })));
   } catch (error) {
     console.log(error);
@@ -211,13 +212,20 @@ app.post('/facultyFormSubmission', async (req, res) => {
   const { date, to, category, subject, subjectElaboration, others, department, details, attachment, attachments, submittedBy } = req.body;
   console.log(req.body);
   try {
-    const finalAttachments = attachments || (attachment ? [attachment] : []);
+    let finalAttachments = attachments || (attachment ? [attachment] : []);
+    finalAttachments = finalAttachments.map(att => {
+      if (att && typeof att.file === 'string') {
+        return { ...att, file: Buffer.from(att.file, 'base64') };
+      }
+      return att;
+    });
+
     const savedForm = await fFormModel({ 
       date, to, 
       category: category || subject, 
       subject, subjectElaboration, 
       others, department, details, 
-      attachment: attachment || (attachments && attachments.length > 0 ? attachments[0] : null),
+      attachment: finalAttachments.length > 0 ? finalAttachments[0] : null,
       attachments: finalAttachments, 
       submittedBy 
     }).save();
@@ -242,13 +250,20 @@ app.post('/studentFormSubmission', async (req, res) => {
   const { date, to, category, subject, subjectElaboration, others, department, details, attachment, attachments, submittedBy, div, year } = req.body;
   console.log(req.body);
   try {
-    const finalAttachments = attachments || (attachment ? [attachment] : []);
+    let finalAttachments = attachments || (attachment ? [attachment] : []);
+    finalAttachments = finalAttachments.map(att => {
+      if (att && typeof att.file === 'string') {
+        return { ...att, file: Buffer.from(att.file, 'base64') };
+      }
+      return att;
+    });
+
     const savedForm = await sFormModel({ 
       date, to, 
       category: category || subject, 
       subject, subjectElaboration, 
       others, department, details, 
-      attachment: attachment || (attachments && attachments.length > 0 ? attachments[0] : null),
+      attachment: finalAttachments.length > 0 ? finalAttachments[0] : null,
       attachments: finalAttachments, 
       submittedBy, div, year 
     }).save();
@@ -346,7 +361,7 @@ app.put('/updateUser', async (req, res) => {
       return res.status(404).send({ message: 'User not found' });
     }
 
-    if (updated.role === 'FacultyAdvisor' && updated.year && updated.div && updated.department) {
+    if (isRole(updated.role, ROLES.FACULTY_ADVISOR) && updated.year && updated.div && updated.department) {
       // Sync with fAdvisorModel
       const existingAssignment = await fAdvisorModel.findOne({
         year: updated.year,
@@ -442,6 +457,80 @@ app.put('/updateMyDepartment', async (req, res) => {
   }
 });
 
+app.put('/updateMyRole', async (req, res) => {
+  const { email, role, year, div } = req.body;
+  try {
+    const usr = await logmodel.findOne({ email });
+    if (!usr) return res.status(404).send("User not found");
+    if (!isRole(usr.role, ROLES.FACULTY) && !isRole(usr.role, ROLES.FACULTY_ADVISOR)) {
+      return res.status(403).send("Only Faculty can switch roles.");
+    }
+    if (isRole(role, ROLES.FACULTY) || isRole(role, ROLES.FACULTY_ADVISOR)) {
+      if (isRole(role, ROLES.FACULTY_ADVISOR)) {
+        // Store the canonical no-space value ('FacultyAdvisor') used everywhere
+        // else in the app (admin-assigned advisors, form `to` fields, Dashboard
+        // role checks) so self-switched advisors are routed identically.
+        usr.role = 'FacultyAdvisor';
+        if (year !== undefined && year !== '') usr.year = Number(year);
+        if (div !== undefined && div !== '') usr.div = String(div);
+        await usr.save();
+
+        // Sync the FacultyAdvisor class assignment. All faculty/student forms
+        // are routed to advisors dynamically by (department, year, div) via
+        // fAdvisorModel, with no time filter. Registering this user for their
+        // class means they immediately inherit every form already forwarded to
+        // the previous advisor of that class, as well as any forwarded later.
+        if (usr.year != null && usr.div && usr.department) {
+          const facultyName =
+            [usr.fName, usr.lName].filter(Boolean).join(' ').trim() || email;
+          const existingAssignment = await fAdvisorModel.findOne({
+            year: usr.year,
+            div: usr.div,
+            department: usr.department,
+          });
+          if (existingAssignment) {
+            if (!existingAssignment.facultyNames.some(f => f.email === email)) {
+              existingAssignment.facultyNames.push({ name: facultyName, email });
+              await existingAssignment.save();
+            }
+          } else {
+            await new fAdvisorModel({
+              year: usr.year,
+              div: usr.div,
+              department: usr.department,
+              facultyNames: [{ name: facultyName, email }],
+            }).save();
+          }
+        }
+      } else {
+        usr.role = 'Faculty';
+        await usr.save();
+
+        // Switching back to plain Faculty: drop this user from any advisor
+        // class assignments so they stop receiving that class's forwarded forms,
+        // and clean up assignments left with no advisors.
+        await fAdvisorModel.updateMany(
+          { 'facultyNames.email': email },
+          { $pull: { facultyNames: { email } } }
+        );
+        await fAdvisorModel.deleteMany({ facultyNames: { $size: 0 } });
+      }
+
+      const token = jwt.sign(
+        { _id: usr._id, email: usr.email, role: usr.role, department: usr.department, year: usr.year, div: usr.div },
+        process.env.JWT_SECRET || 'pineapplepie',
+        { expiresIn: '2h' }
+      );
+      res.send({ token, role: usr.role });
+    } else {
+      res.status(400).send("Invalid role switch");
+    }
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Failed to update role");
+  }
+});
+
 // Get all users
 app.get('/api/user/profile/:email', async (req, res) => {
   try {
@@ -466,23 +555,23 @@ app.get('/getAllUsers', async (req, res) => {
 app.get('/getFormsForUser', async (req, res) => {
   const { email, role } = req.query;
   try {
-    if (role === 'admin' || role === 'Admin') {
+    if (isRole(role, ROLES.ADMIN)) {
       // Admin: return all forms
       const [facultyForms, studentForms] = await Promise.all([
-        fFormModel.find(),
-        sFormModel.find()
+        fFormModel.find().select('-attachment -attachments'),
+        sFormModel.find().select('-attachment -attachments')
       ]);
       res.send([
         ...facultyForms.map(f => ({ ...f.toObject(), owner: 'staff' })),
         ...studentForms.map(s => ({ ...s.toObject(), owner: 'student' }))
       ]);
-    } else if (role === 'student' || role === 'Student') {
+    } else if (isRole(role, ROLES.STUDENT)) {
       // Student: only their forms
-      const forms = await sFormModel.find({ submittedBy: email });
+      const forms = await sFormModel.find({ submittedBy: email }).select('-attachment -attachments');
       res.send(forms.map(s => ({ ...s.toObject(), owner: 'student' })));
     } else {
       // Staff: only their forms
-      const forms = await fFormModel.find({ submittedBy: email });
+      const forms = await fFormModel.find({ submittedBy: email }).select('-attachment -attachments');
       res.send(forms.map(f => ({ ...f.toObject(), owner: 'staff' })));
     }
   } catch (error) {
@@ -504,12 +593,12 @@ app.get('/getArchivedForms', async (req, res) => {
     const userYear = user?.year;
     const userDiv = user?.div;
 
-    const finalStatuses = ['accepted', 'rejected'];
+    const finalStatuses = ['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'];
 
     // 1. Forms submitted by this user that have final status
     const [submittedStudent, submittedFaculty] = await Promise.all([
-      sFormModel.find({ submittedBy: email, status: { $in: finalStatuses } }).lean(),
-      fFormModel.find({ submittedBy: email, status: { $in: finalStatuses } }).lean(),
+      sFormModel.find().select('-attachment -attachments').lean(),
+      fFormModel.find().select('-attachment -attachments').lean(),
     ]);
 
     const submitted = [
@@ -527,17 +616,25 @@ app.get('/getArchivedForms', async (req, res) => {
     } else {
       // Faculty/Staff: filter by role and user context
       const facultyReceived = await fFormModel.find({
-        to: normalizedRole,
-        ...(userDepartment ? { department: userDepartment } : {}),
         status: { $in: finalStatuses },
-      }).lean();
+      }).select('-attachment -attachments').lean();
 
-      const allStudentFinal = await sFormModel.find({ status: { $in: finalStatuses } }).lean();
+      const allStudentFinal = await sFormModel.find({ status: { $in: finalStatuses } }).select('-attachment -attachments').lean();
       const studentReceived = allStudentFinal.filter(form => {
         const toArray = Array.isArray(form.to) ? form.to : [form.to];
-        const isRecipient = toArray.includes(normalizedRole) && (
+        const roleArray = getRoleQueryArray(role);
+        
+        // Match if the form is addressed to the current role (or any of its aliases/supersets like Faculty for FacultyAdvisor)
+        const isAddressedToRole = toArray.some(t => roleArray.includes(t) || roleArray.includes(normalizeRole(t)));
+        
+        const isAddressedToFaculty = toArray.some(t => ['Faculty', 'faculty'].includes(t));
+        
+        const isRecipient = isAddressedToRole && (
           (normalizedRole === 'HOD' && form.department === userDepartment) ||
-          (normalizedRole === 'FacultyAdvisor' && form.department === userDepartment && (userYear == null || form.year == userYear) && (userDiv == null || form.div === userDiv)) ||
+          (normalizedRole === 'FacultyAdvisor' && (
+             isAddressedToFaculty || 
+             (form.department === userDepartment && (userYear == null || form.year == userYear) && (userDiv == null || form.div === userDiv))
+          )) ||
           (!['HOD', 'FacultyAdvisor'].includes(normalizedRole))
         );
         return isRecipient;
@@ -570,87 +667,88 @@ app.get('/getArchivedForms', async (req, res) => {
  * - div (string): The user's assigned division (required for 'FacultyAdvisor').
  */
 app.get('/getReceivedFormsForUser', async (req, res) => {
-  const { role, department, year, div, type } = req.query; // Added 'type'
-  console.log({ role, department, year, div, type });
+  const { role, department, year, div, type, email } = req.query; // Added 'email'
+  console.log({ role, department, year, div, type, email });
 
   // --- Input Validation ---
   if (!role) {
     return res.status(400).send({ message: 'Role is a required query parameter.' });
   }
-  if (role === 'HOD' && !department) {
+  if (isRole(role, ROLES.HOD) && !department) {
     return res.status(400).send({ message: 'Department is required for HOD role.' });
   }
-  if (role === 'FacultyAdvisor' && (!department || !year || !div)) {
-    return res.status(400).send({ message: 'Department, year, and div are required for FacultyAdvisor role.' });
+  if (isRole(role, ROLES.FACULTY_ADVISOR) && (!department || !email)) {
+    return res.status(400).send({ message: 'Department and email are required for FacultyAdvisor role.' });
   }
 
   try {
     let facultyReceived = [];
     let studentReceived = [];
 
-    if (role === 'HOD' || role === 'hod') {
+    if (isRole(role, ROLES.HOD)) {
       if (type === 'staff') {
         const staffUsers = await logmodel.find({ role: 'Faculty', department: department }, 'email').lean();
         const staffEmails = staffUsers.map(u => u.email);
-        facultyReceived = await fFormModel.find({ submittedBy: { $in: staffEmails }, to: { $in: [role, 'HOD', 'hod'] }, department: department });
+        facultyReceived = await fFormModel.find({ submittedBy: { $in: staffEmails }, to: { $in: getRoleQueryArray(ROLES.HOD) }, department: department }).select('-attachment -attachments');
       } else if (type === 'student') {
         const studentUsers = await logmodel.find({ role: 'Student', department: department }, 'email').lean();
         const studentEmails = studentUsers.map(u => u.email);
-        studentReceived = await sFormModel.find({ submittedBy: { $in: studentEmails }, to: { $in: [role, 'HOD', 'hod'] }, department: department });
+        studentReceived = await sFormModel.find({ submittedBy: { $in: studentEmails }, to: { $in: getRoleQueryArray(ROLES.HOD) }, department: department }).select('-attachment -attachments');
       } else {
-        // Default for HOD if no specific 'type' parameter or an invalid one (fetch both)
+        const hodQuery = { department, to: { $in: getRoleQueryArray(ROLES.HOD) } };
         const [deptFacultyForms, deptStudentForms] = await Promise.all([
-          fFormModel.find({ to: { $in: [role, 'HOD', 'hod'] }, department: department }),
-          sFormModel.find({ to: { $in: [role, 'HOD', 'hod'] }, department: department })
+          fFormModel.find(hodQuery).select('-attachment -attachments'),
+          sFormModel.find(hodQuery).select('-attachment -attachments')
         ]);
         facultyReceived = deptFacultyForms;
         studentReceived = deptStudentForms;
       }
-    } else if (role === 'Manager' || role === 'manager') {
+    } else if (isRole(role, ROLES.MANAGER)) {
       const pendingStatuses = ['awaiting', 'forwarded', 'edit'];
-      facultyReceived = await fFormModel.find({ status: { $in: pendingStatuses } });
-      studentReceived = await sFormModel.find({ status: { $in: pendingStatuses } });
-    } else if (role === 'Principal' || role === 'principal') {
+      facultyReceived = await fFormModel.find().select('-attachment -attachments');
+      studentReceived = await sFormModel.find().select('-attachment -attachments');
+    } else if (isRole(role, ROLES.PRINCIPAL)) {
       // Principal sees all faculty forms addressed to them
-      facultyReceived = await fFormModel.find({ to: { $in: [role, 'Principal', 'principal'] } });
-      studentReceived = await sFormModel.find({ to: { $in: [role, 'Principal', 'principal'] } });
+      facultyReceived = await fFormModel.find({ to: { $in: getRoleQueryArray(ROLES.PRINCIPAL) } }).select('-attachment -attachments');
+      studentReceived = await sFormModel.find({ to: { $in: getRoleQueryArray(ROLES.PRINCIPAL) } }).select('-attachment -attachments');
     } else {
       // For other roles
-      const facultyQuery = { to: role };
-      if ((role === 'HOD' || role === 'hod') && department) {
+      const facultyQuery = { to: { $in: getRoleQueryArray(role) } };
+      if ((isRole(role, ROLES.HOD)) && department) {
         facultyQuery.department = department;
       }
-      facultyReceived = await fFormModel.find(facultyQuery);
+      facultyReceived = await fFormModel.find(facultyQuery).select('-attachment -attachments');
 
-      const allStudentForms = await sFormModel.find().lean();
+      let faAssignments = [];
+      if (isRole(role, ROLES.FACULTY_ADVISOR)) {
+        faAssignments = await fAdvisorModel.find({ 'facultyNames.email': email, department }).lean();
+      }
 
-      studentReceived = allStudentForms.filter(form => {
-        const toArray = Array.isArray(form.to) ? form.to : [form.to];
+      let studentQuery = { to: { $in: getRoleQueryArray(role) } };
 
-        const isRecipient = toArray.some(recipient =>
-        (recipient === role ||
-          (role === 'Principal' && recipient === 'principal') ||
-          (role === 'principal' && recipient === 'Principal'))
-        ) && (
-            (role === 'HOD' && form.department === department) ||
-            (role === 'FacultyAdvisor' && form.department === department && form.year == year && form.div === div) ||
-            ['Principal', 'principal', 'Manager', 'manager'].includes(role)
-          );
-
-        if (!isRecipient) {
-          return false;
+      if (isRole(role, ROLES.HOD)) {
+        studentQuery.department = department;
+      } else if (isRole(role, ROLES.FACULTY_ADVISOR)) {
+        if (faAssignments.length > 0) {
+          const advisorRoles = ['FacultyAdvisor', 'facultyadvisor', 'Faculty Advisor'];
+          const facultyRoles = ['Faculty', 'faculty'];
+          
+          studentQuery = {
+            $or: [
+              { to: { $in: facultyRoles } },
+              {
+                to: { $in: advisorRoles },
+                department: department,
+                $or: faAssignments.map(a => ({ year: String(a.year), div: a.div }))
+              }
+            ]
+          };
+        } else {
+          studentQuery = { to: { $in: ['Faculty', 'faculty'] } }; // No assignments, only see Faculty forms
         }
+      }
 
-        const isToHodOrHigher = toArray.some(r => ['HOD', 'Principal', 'principal', 'Manager', 'manager'].includes(r));
-        const includesFacultyAdvisor = toArray.includes('FacultyAdvisor');
-        const isPrincipalOrManager = ['Principal', 'principal', 'Manager', 'manager'].includes(role);
-
-        if (isToHodOrHigher && !includesFacultyAdvisor && !isPrincipalOrManager) {
-          return false;
-        }
-
-        return true;
-      });
+      studentReceived = await sFormModel.find(studentQuery).select('-attachment -attachments').lean();
     }
 
     const toPlain = doc => (typeof doc.toObject === 'function' ? doc.toObject() : doc);
@@ -760,8 +858,8 @@ app.put('/markAllNotificationsRead', async (req, res) => {
 });
 
 // Delete read notifications (optional cleanup)
-app.delete('/clearNotifications', async (req, res) => {
-  const { email } = req.body;
+app.delete('/clearNotifications/:email', async (req, res) => {
+  const email = req.params.email;
   try {
     await NotificationModel.deleteMany({ recipientEmail: email, isRead: true });
     res.send({ message: 'Read notifications cleared' });
@@ -988,7 +1086,7 @@ app.put('/updateFormRemarksStatus', async (req, res) => {
     if (!currentForm) {
       return res.status(404).send({ message: 'Form not found with the provided formId.' });
     }
-    if (currentForm.status === 'accepted' || currentForm.status === 'rejected') {
+    if (['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(currentForm.status)) {
       return res.status(400).send({ message: 'This form is already completed and cannot be modified.' });
     }
 
@@ -1066,7 +1164,8 @@ app.put('/updateFormRemarksStatus', async (req, res) => {
         // Re-use the resolving logic? 
         // Since notifyRecipients is async and complex, let's call it or a similar logic.
         // For forwarding, it usually goes to a ROLE.
-        await notifyRecipients(updatedForm, formType, newRecipient, updatedForm.department);
+        notifyRecipients(updatedForm, formType, newRecipient, updatedForm.department)
+          .catch(err => console.error("Error in background notifyRecipients:", err));
       }
     }
 
@@ -1156,15 +1255,15 @@ async function notifyRecipients(form, formType, targetRole, department) {
     // Dedupe
     recipientEmails = [...new Set(recipientEmails)];
 
-    // Send
-    for (const email of recipientEmails) {
-      await createNotification(
+    // Send concurrently
+    await Promise.all(recipientEmails.map(email => 
+      createNotification(
         email,
         `New ${formType} form waiting for your action.`,
         form._id,
         formType
-      );
-    }
+      )
+    ));
 
   } catch (e) {
     console.error("Error notifying recipients:", e);
@@ -1234,15 +1333,33 @@ app.delete('/deleteForm', async (req, res) => {
   }
 });
 
+app.delete('/clearAllForms', async (req, res) => {
+  try {
+    await sFormModel.deleteMany({});
+    await fFormModel.deleteMany({});
+    
+    // reset counters
+    const Counter = mongoose.model('Counter');
+    if (Counter) {
+      await Counter.deleteMany({ id: { $in: ['studentFormId', 'facultyFormId', 'formId'] } });
+    }
+    
+    res.status(200).send({ message: 'Successfully cleared all form history.' });
+  } catch (error) {
+    console.error('Error clearing forms:', error);
+    res.status(500).send({ message: 'Error clearing all forms.', error: error.message });
+  }
+});
+
 // Helper function to check if user is a valid receiver for a form
 function isValidReceiver(form, userEmail, userRole) {
   // Admin can delete any form (except in some cases)
-  if (userRole === 'admin' || userRole === 'Admin') {
+  if (isRole(userRole, ROLES.ADMIN)) {
     return true;
   }
 
   // Students cannot delete received forms (they only submit)
-  if (userRole === 'Student' || userRole === 'student') {
+  if (isRole(userRole, ROLES.STUDENT)) {
     return false;
   }
 
@@ -1264,8 +1381,8 @@ app.get('/getForwardedFormsForUser', async (req, res) => {
   try {
     // Get forms submitted by this user from both student and faculty models
     const [studentForms, facultyForms] = await Promise.all([
-      sFormModel.find({ submittedBy: email }),
-      fFormModel.find({ submittedBy: email })
+      sFormModel.find({ submittedBy: email }).select('-attachment -attachments'),
+      fFormModel.find({ submittedBy: email }).select('-attachment -attachments')
     ]);
 
     // Combine and filter forms that have been forwarded (status is not 'awaiting')
@@ -1294,8 +1411,8 @@ app.get('/api/stats/dashboard', async (req, res) => {
     const totalUsers = await logmodel.countDocuments();
     
     // Get forms
-    const studentForms = await sFormModel.find();
-    const facultyForms = await fFormModel.find();
+    const studentForms = await sFormModel.find().select('-attachment -attachments');
+    const facultyForms = await fFormModel.find().select('-attachment -attachments');
     const allForms = [...studentForms, ...facultyForms];
     
     // Calculate forms by status

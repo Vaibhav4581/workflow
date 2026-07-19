@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Navbar from './components/Navbar';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -15,7 +17,17 @@ import ProfilePage from './pages/ProfilePage';
 import MySubmission from './pages/MySubmission';
 import WelcomeAnimation from './pages/WelcomeAnimation';
 import SettingsPage from './pages/SettingsPage';
+import PrivateRoute from './components/PrivateRoute';
 import './App.css';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes cache to prevent redundant fetches
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function App() {
   useEffect(() => {
@@ -26,28 +38,39 @@ function App() {
     }
   }, []);
   return (
-    <Router>
-      <div className="App">
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <div className="App">
+        <Toaster position="bottom-right" />
         <Navbar />
         <Routes>
+          {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
-          <Route path="/dashboard" element={<DynamicDashboard><Dashboard /></DynamicDashboard>} />
-          <Route path="/submission/new" element={<NewSubmission />} />
-          <Route path="/submission/:id" element={<SubmissionView />} />
-          <Route path="/admin" element={<AdminPanel />} />
-          <Route path="/received-forms" element={<ReceivedForms />} />
-          <Route path="/received-forms/:id" element={<ReceivedFormView />} />
-          <Route path="/principal" element={<PrincipalPage />} />
-          <Route path="/ProfilePage" element={<ProfilePage />} />
-          <Route path="/my-submission" element={<MySubmission />} />
           <Route path="/welcome" element={<WelcomeAnimation />} />
-          <Route path="/settings" element={<SettingsPage />} />
+
+          {/* Protected routes – require login */}
+          <Route path="/dashboard" element={<PrivateRoute><DynamicDashboard><Dashboard /></DynamicDashboard></PrivateRoute>} />
+          <Route path="/submission/new" element={<PrivateRoute><NewSubmission /></PrivateRoute>} />
+          <Route path="/submission/:id" element={<PrivateRoute><SubmissionView /></PrivateRoute>} />
+          <Route path="/received-forms" element={<PrivateRoute><ReceivedForms /></PrivateRoute>} />
+          <Route path="/received-forms/:id" element={<PrivateRoute><ReceivedFormView /></PrivateRoute>} />
+          <Route path="/principal" element={<PrivateRoute allowedRoles={['Principal', 'principal']}><PrincipalPage /></PrivateRoute>} />
+          <Route path="/ProfilePage" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
+          <Route path="/my-submission" element={<PrivateRoute><MySubmission /></PrivateRoute>} />
+          <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+
+          {/* Admin-only route */}
+          <Route path="/admin" element={<PrivateRoute allowedRoles={['Admin', 'admin']}><AdminPanel /></PrivateRoute>} />
+
+          {/* Default redirect */}
           <Route path="/" element={<Navigate to="/login" replace />} />
         </Routes>
       </div>
     </Router>
+    </QueryClientProvider>
   );
 }
 
 export default App; 
+

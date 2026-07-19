@@ -1,3 +1,4 @@
+import { ROLES, isRole } from '../utils/roles';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -6,6 +7,7 @@ import './Archive.css';
 
 const statusColors = {
   accepted: '#22c55e',
+  approved: '#22c55e',
   rejected: '#ef4444',
   approved: '#22c55e',
   edit: '#f59e0b'
@@ -43,7 +45,7 @@ export default function Archive() {
   }, []);
 
   const filteredForms = archivedForms.filter(form => {
-    const matchesFilter = filter === 'all' || form.status === filter;
+    const matchesFilter = filter === 'all' || (filter === 'accepted' ? (form.status === 'accepted' || form.status === 'approved') : form.status === filter);
     const matchesCategory = categoryFilter === 'all' || form.category === categoryFilter;
     const matchesSearch = searchTerm === '' || 
       form.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -64,11 +66,6 @@ export default function Archive() {
 
   return (
     <div className="archive-container">
-      <div className="archive-header">
-        <h1>Archive</h1>
-        <p>Completed forms and their final status</p>
-      </div>
-
       <div className="archive-controls">
         <input
           type="text"
@@ -83,15 +80,15 @@ export default function Archive() {
             All ({archivedForms.length})
           </button>
           <button className={`filter-btn ${filter === 'accepted' ? 'active' : ''}`} onClick={() => setFilter('accepted')}>
-            Accepted ({archivedForms.filter(f => f.status === 'accepted').length})
+            Approved ({archivedForms.filter(f => f.status === 'accepted' || f.status === 'approved').length})
           </button>
           <button className={`filter-btn ${filter === 'rejected' ? 'active' : ''}`} onClick={() => setFilter('rejected')}>
             Rejected ({archivedForms.filter(f => f.status === 'rejected').length})
           </button>
         </div>
 
-        {(userRole === 'HOD' || userRole === 'Principal' || userRole === 'Manager' || 
-          userRole === 'FacultyAdvisor' || userRole === 'admin') && (
+        {(isRole(userRole, ROLES.HOD) || userRole === 'Principal' || userRole === 'Manager' || 
+          isRole(userRole, ROLES.FACULTY_ADVISOR) || userRole === 'admin') && (
           <div className="category-filter">
             <h4>Form Category:</h4>
             <div className="category-buttons">

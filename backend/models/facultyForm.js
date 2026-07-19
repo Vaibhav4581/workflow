@@ -45,10 +45,10 @@ const facultyFormSchema = new mongoose.Schema({
         filename: { type: String},
         mimetype: { type: String}
     }],
-    status : {
-        type : String,
-        enum : ['awaiting', 'forwarded', 'accepted', 'rejected', 'edit', 'not_approved', 'cancelled'],
-        default : 'awaiting'
+    status: {
+        type: String,
+        enum : ['awaiting', 'forwarded', 'accepted', 'approved', 'rejected', 'edit', 'not_approved', 'cancelled'],
+        default: 'awaiting',
     },
     submittedBy : {
         type : String,

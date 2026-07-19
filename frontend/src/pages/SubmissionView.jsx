@@ -2,8 +2,12 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
 import { jwtDecode } from "jwt-decode";
 import axios from 'axios';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import toast from 'react-hot-toast';
+import ConfirmModal from '../components/ConfirmModal';
+import { generateOfficialPdf } from '../utils/pdfGenerator';
+import { getNextReceiver } from '../utils/hierarchy';
 
 const statusLabels = {
   awaiting: 'Awaiting',
@@ -31,10 +35,12 @@ const rolePermissions = {
   principal: { accept: true, reject: true, requestEdit: true },
   Manager: { accept: true, reject: true, requestEdit: true },
   manager: { accept: true, reject: true, requestEdit: true },
-  HOD: { accept: false, reject: true, requestEdit: true },
-  hod: { accept: false, reject: true, requestEdit: true },
-  FacultyAdvisor: { accept: false, reject: true, requestEdit: true },
-  facultyadvisor: { accept: false, reject: true, requestEdit: true },
+  HOD: { accept: true, reject: true, requestEdit: true },
+  hod: { accept: true, reject: true, requestEdit: true },
+  FacultyAdvisor: { accept: true, reject: true, requestEdit: true },
+  facultyadvisor: { accept: true, reject: true, requestEdit: true },
+  Faculty: { accept: true, reject: true, requestEdit: true },
+  faculty: { accept: true, reject: true, requestEdit: true },
 };
 
 export default function SubmissionView() {
@@ -44,6 +50,7 @@ export default function SubmissionView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
   const [lastUpdateTime, setLastUpdateTime] = useState(Date.now());
   const letterRef = useRef(null);
   
@@ -102,8 +109,25 @@ export default function SubmissionView() {
   if (!submission) return null;
 
   const status = submission.status || 'awaiting';
-  const statusLabel = statusLabels[status] || status;
-  const statusColor = statusColors[status] || '#888';
+  
+  const userRoleLower = currentUser?.role ? currentUser.role.toLowerCase() : '';
+  const userActions = submission.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
+  const hasActed = userActions.some(h => 
+    h.action.toLowerCase().includes('forwarded') || 
+    ['accepted', 'approved', 'rejected', 'not_approved'].some(st => h.action.toLowerCase().includes(st))
+  );
+
+  let actedStatus = 'forwarded';
+  if (hasActed && userActions.length > 0) {
+    const lastAction = userActions[userActions.length - 1].action.toLowerCase();
+    if (lastAction.includes('not_approved')) actedStatus = 'not_approved';
+    else if (lastAction.includes('approved')) actedStatus = 'approved';
+    else if (lastAction.includes('accepted')) actedStatus = 'accepted';
+    else if (lastAction.includes('rejected')) actedStatus = 'rejected';
+  }
+
+  const statusLabel = hasActed ? (statusLabels[actedStatus] || actedStatus) : (statusLabels[status] || status);
+  const statusColor = hasActed ? (statusColors[actedStatus] || '#888') : (statusColors[status] || '#888');
 
   // Determine if this is a received form view (e.g., via location.state)
   const isReceivedView = location.state?.fromReceived || false;
@@ -115,14 +139,14 @@ export default function SubmissionView() {
   );
 
   // Check if current user can perform actions (receiver only, not sender)
-  const canPerformActions = currentUser && 
+  const canPerformActions = !hasActed && currentUser && 
     submission.submittedBy !== currentUser.email && 
     (Array.isArray(submission.to) ? submission.to.includes(currentUser.role) : submission.to === currentUser.role);
 
   // Handle form actions
-  const handleFormAction = async (action, actionRemarks = '') => {
+  const handleFormAction = async (action, actionRemarks = '', targetForwardTo = '') => {
     if (!canPerformActions) {
-      alert('You are not authorized to perform this action.');
+      toast.error('You are not authorized to perform this action.');
       return;
     }
 
@@ -136,7 +160,7 @@ export default function SubmissionView() {
         formType: backendFormType,
         status: action,
         remarks: actionRemarks || remarks,
-        forwardTo: forwardTo || undefined
+        forwardTo: targetForwardTo || forwardTo || undefined
       });
       
       // Refresh the submission data
@@ -158,11 +182,11 @@ export default function SubmissionView() {
       // Reset form
       setRemarks('');
       setForwardTo('');
-      alert(`Form ${action} successfully!`);
+      toast.success(`Form ${action} successfully!`);
       
     } catch (error) {
-      console.error('Error performing action:', error);
-      alert('Failed to perform action. Please try again.');
+      console.error('Action Error:', error);
+      toast.error('Failed to perform action. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -170,100 +194,71 @@ export default function SubmissionView() {
 
   // Handle accept action
   const handleAccept = () => {
-    if (window.confirm('Are you sure you want to accept this form?')) {
-      handleFormAction('accepted', remarks);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      message: 'Are you sure you want to accept this form?',
+      onConfirm: () => {
+        setConfirmDialog({ isOpen: false });
+        handleFormAction('accepted', remarks);
+      }
+    });
   };
 
   // Handle reject action
   const handleReject = () => {
     if (!remarks.trim()) {
-      alert('Please provide remarks when rejecting a form.');
+      toast.error('Please provide remarks when rejecting a form.');
       return;
     }
-    if (window.confirm('Are you sure you want to reject this form?')) {
-      handleFormAction('rejected', remarks);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      message: 'Are you sure you want to reject this form?',
+      onConfirm: () => {
+        setConfirmDialog({ isOpen: false });
+        handleFormAction('rejected', remarks);
+      }
+    });
   };
 
   // Handle request edit action
   const handleRequestEdit = () => {
     if (!remarks.trim()) {
-      alert('Please provide remarks when requesting edits.');
+      toast.error('Please provide remarks when requesting edits.');
       return;
     }
-    if (window.confirm('Are you sure you want to request edits for this form?')) {
-      handleFormAction('edit', remarks);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      message: 'Are you sure you want to request edits for this form?',
+      onConfirm: () => {
+        setConfirmDialog({ isOpen: false });
+        handleFormAction('edit', remarks);
+      }
+    });
   };
 
   // Handle forward action
-  const handleForward = () => {
-    if (!forwardTo) {
-      alert('Please select someone to forward to.');
+  const handleForward = (targetForwardTo) => {
+    if (!targetForwardTo) {
+      toast.error('Please select someone to forward to.');
       return;
     }
-    if (window.confirm(`Are you sure you want to forward this form to ${forwardTo}?`)) {
-      handleFormAction('forwarded', remarks);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      message: `Are you sure you want to forward this form to ${targetForwardTo}?`,
+      onConfirm: () => {
+        setConfirmDialog({ isOpen: false });
+        handleFormAction('forwarded', remarks, targetForwardTo);
+      }
+    });
   };
 
   const handleDownloadPdf = async () => {
     try {
-      const doc = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 14;
+      await generateOfficialPdf(submission);
 
-      if (letterRef.current) {
-        const canvas = await html2canvas(letterRef.current, { scale: 2 });
-        const imgData = canvas.toDataURL('image/png');
-        const imgWidth = pageWidth - margin * 2;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        doc.addImage(imgData, 'PNG', margin, margin, imgWidth, Math.min(imgHeight, pageHeight - margin * 2));
-      }
-
-      // Add history page
-      doc.addPage();
-      let y = margin;
-      doc.setFontSize(16);
-      doc.text('Form Roadmap & Remarks', margin, y);
-      y += 8;
-      doc.setDrawColor(200);
-      doc.line(margin, y, pageWidth - margin, y);
-      y += 8;
-      doc.setFontSize(12);
-
-      const lines = [];
-      lines.push(`Form: #${submission.formNo || submission._id}`);
-      lines.push(`Subject: ${submission.subject}`);
-      lines.push(`Department: ${submission.department}`);
-      lines.push(`Submitted By: ${submission.submittedBy}`);
-      lines.push(`Status: ${submission.status}`);
-      lines.push('');
-      lines.push('History:');
-      (submission.history || []).forEach((h, idx) => {
-        const ts = h.timestamp ? new Date(h.timestamp).toLocaleString() : '';
-        const header = `${idx + 1}. [${ts}] ${h.by || 'system'} - ${h.action || ''}`;
-        lines.push(header);
-        if (h.remarks) lines.push(`   Remarks: ${h.remarks}`);
-        lines.push('');
-      });
-
-      const content = doc.splitTextToSize(lines.join('\n'), pageWidth - margin * 2);
-      content.forEach((line) => {
-        if (y > pageHeight - margin) {
-          doc.addPage();
-          y = margin;
-        }
-        doc.text(line, margin, y);
-        y += 6;
-      });
-
-      doc.save(`form_${submission.formNo || submission._id}_roadmap.pdf`);
-    } catch (e) {
-      console.error(e);
-      alert('Failed to generate PDF');
+    } catch (error) {
+      console.error('PDF Generation Error:', error);
+      toast.error('Failed to generate PDF');
     }
   };
 
@@ -290,10 +285,16 @@ export default function SubmissionView() {
   };
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '80vh', background: '#f8f9fa', padding: 40, gap: 24 }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '80vh', background: 'var(--bg-color, #f8f9fa)', padding: 40, gap: 24 }}>
+      <ConfirmModal 
+        isOpen={confirmDialog.isOpen} 
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} 
+        onConfirm={confirmDialog.onConfirm} 
+        message={confirmDialog.message} 
+      />
       {/* Status Bar */}
       <div style={{ width: 16, minHeight: 400, background: statusColor, borderRadius: 8, position: 'relative' }}>
-        <div style={{ position: 'absolute', top: 20, left: 24, color: statusColor, fontWeight: 'bold', writingMode: 'vertical-rl', textOrientation: 'mixed', fontSize: 18, letterSpacing: 2 }}>
+        <div style={{ position: 'absolute', top: 20, right: 24, color: statusColor, fontWeight: 'bold', writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)', fontSize: 18, letterSpacing: 2 }}>
           {statusLabel}
         </div>
       </div>
@@ -301,17 +302,15 @@ export default function SubmissionView() {
       {/* Main Content Container */}
       <div style={{ display: 'flex', gap: 24, flex: 1, maxWidth: 1200 }}>
       {/* Letter Format */}
-        <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 2px 12px #eee', padding: 40, minWidth: 400, flex: 1 }}>
+        <div style={{ background: 'var(--card-bg, #fff)', borderRadius: 12, boxShadow: 'var(--shadow-md, 0 2px 12px rgba(0,0,0,0.1))', padding: 40, minWidth: 400, flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div />
-          {(currentUser && ['Principal','principal','HOD','hod','FacultyAdvisor','facultyadvisor'].includes(currentUser.role)) && (
             <button
               onClick={handleDownloadPdf}
               style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 12px', fontWeight: 600 }}
             >
               ⬇️ Download PDF
             </button>
-          )}
         </div>
         <div style={{ textAlign: 'right', marginBottom: 16 }}>
           <div><b>Date:</b> {submission.createdAt ? new Date(submission.createdAt).toLocaleString() : ''}</div>
@@ -547,25 +546,6 @@ export default function SubmissionView() {
               })}
             </div>
           </div>
-          
-          {/* Real-time Updates Info
-          <div style={{ 
-            background: '#f0f9ff',
-            borderRadius: 8,
-            padding: 12,
-            border: '1px solid #0ea5e9',
-            marginBottom: 12
-          }}> */}
-            {/* <div style={{ fontSize: '0.85rem', color: '#0369a1' }}>
-              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>🔄 Live Updates</div>
-              <div style={{ fontSize: '0.8rem' }}>
-                Last updated: {new Date(lastUpdateTime).toLocaleTimeString()}
-              </div>
-              <div style={{ fontSize: '0.75rem', marginTop: 4, fontStyle: 'italic' }}>
-                Auto-refresh every 15 seconds
-              </div>
-            </div> */}
-          {/* </div> */}
 
           {/* Submitter Actions */}
           {submission.submittedBy === currentUser?.email && (
@@ -576,10 +556,15 @@ export default function SubmissionView() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {status === 'awaiting' && (
                   <button
-                    onClick={async () => {
-                      if (window.confirm('Are you sure you want to cancel this submission?')) {
-                        handleFormAction('cancelled', 'Cancelled by submitter');
-                      }
+                    onClick={() => {
+                      setConfirmDialog({
+                        isOpen: true,
+                        message: 'Are you sure you want to cancel this submission?',
+                        onConfirm: () => {
+                          setConfirmDialog({ isOpen: false });
+                          handleFormAction('cancelled', 'Cancelled by submitter');
+                        }
+                      });
                     }}
                     disabled={isSubmitting}
                     style={{
@@ -595,17 +580,15 @@ export default function SubmissionView() {
                     onClick={async () => {
                       setIsSubmitting(true);
                       try {
-                        const backendFormType = submission.owner === 'staff' ? 'faculty' : submission.owner;
-                        await axios.post('/sendReminder', {
-                          formId: submission._id,
-                          formType: backendFormType,
+                        await axios.post('/sendReminders', {
                           submitterEmail: currentUser.email,
-                          currentHandlerRoles: Array.isArray(submission.to) ? submission.to : [submission.to],
-                          department: submission.department
+                          formId: submission._id,
+                          subject: submission.subject,
+                          to: submission.to,
                         });
-                        alert('Reminders sent successfully!');
+                        toast.success('Reminders sent successfully!');
                       } catch (err) {
-                        alert('Failed to send reminders.');
+                        toast.error('Failed to send reminders.');
                       } finally {
                         setIsSubmitting(false);
                       }
@@ -699,8 +682,15 @@ export default function SubmissionView() {
                 {rolePermissions[currentUser?.role]?.reject && (
                   <button
                     onClick={() => {
-                      if (!remarks.trim()) { alert('Please provide remarks when marking as Not Approved.'); return; }
-                      if (window.confirm('Are you sure you want to mark this as Not Approved?')) { handleFormAction('not_approved', remarks); }
+                      if (!remarks.trim()) { toast.error('Please provide remarks when marking as Not Approved.'); return; }
+                      setConfirmDialog({
+                        isOpen: true,
+                        message: 'Are you sure you want to mark this as Not Approved?',
+                        onConfirm: () => {
+                          setConfirmDialog({ isOpen: false });
+                          handleFormAction('not_approved', remarks);
+                        }
+                      });
                     }}
                     disabled={isSubmitting}
                     style={{ background: '#f97316', color: 'white', border: 'none', borderRadius: 6, padding: '10px 16px', fontSize: '0.9rem', fontWeight: '600', cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.6 : 1 }}
@@ -729,61 +719,56 @@ export default function SubmissionView() {
                   border: '1px solid #d1d5db',
                   borderRadius: 6,
                   fontSize: '0.9rem',
-                  resize: 'vertical',
+                  resize: 'none',
                   fontFamily: 'inherit'
                 }}
               />
             </div>
           )}
 
-          {/* Forward To Section */}
           {canPerformActions && (
             <div style={{ marginBottom: 20 }}>
               <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
                 📤 Forward To
               </h4>
-              <select
-                value={forwardTo}
-                onChange={(e) => setForwardTo(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: 10,
-                  border: '1px solid #d1d5db',
-                  borderRadius: 6,
-                  fontSize: '0.9rem',
-                  background: 'white'
-                }}
-              >
-                <option value="">Select person to forward</option>
-                <option value="FacultyAdvisor">Faculty Advisor</option>
-                <option value="HOD">HOD</option>
-                <option value="Principal">Principal</option>
-                <option value="Manager">Manager</option>
-                <option value="Committee">Committee</option>
-                <option value="Secretary">Secretary</option>
-              </select>
               
-              {forwardTo && (
-                <button
-                  onClick={handleForward}
-                  disabled={isSubmitting}
-                  style={{
-                    background: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
+              {(() => {
+                const nextRcv = getNextReceiver(submission.category || submission.subject, submission.to);
+                const targetOpt = nextRcv ? { label: nextRcv, value: nextRcv } : null;
+                if (!targetOpt) return null;
+
+                return (
+                  <div style={{
+                    padding: 12,
+                    border: '1px solid #d1d5db',
                     borderRadius: 6,
-                    padding: '8px 16px',
-                    fontSize: '0.85rem',
-                    fontWeight: '600',
-                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                    opacity: isSubmitting ? 0.6 : 1,
-                    marginTop: 8,
-                    width: '100%'
-                  }}
-                >
-                  📤 Forward Form
-                </button>
-              )}
+                    background: '#f8fafc',
+                    fontSize: '0.9rem',
+                    color: '#374151'
+                  }}>
+                    <strong>Forward to:</strong> {targetOpt.label}
+                    <button
+                      onClick={() => handleForward(targetOpt.value)}
+                      disabled={isSubmitting}
+                      style={{
+                        background: '#3b82f6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 6,
+                        padding: '8px 16px',
+                        fontSize: '0.85rem',
+                        fontWeight: '600',
+                        cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                        opacity: isSubmitting ? 0.6 : 1,
+                        marginTop: 8,
+                        width: '100%'
+                      }}
+                    >
+                      📤 Forward Form
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -805,6 +790,12 @@ export default function SubmissionView() {
           </div>
         )}
       </div>
+      <ConfirmModal 
+        isOpen={confirmDialog.isOpen} 
+        message={confirmDialog.message} 
+        onConfirm={confirmDialog.onConfirm} 
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} 
+      />
     </div>
   );
 } 

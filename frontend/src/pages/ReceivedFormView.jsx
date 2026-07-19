@@ -4,6 +4,11 @@ import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import toast from 'react-hot-toast';
+import ConfirmModal from '../components/ConfirmModal';
+import { generateOfficialPdf } from '../utils/pdfGenerator';
+import { getNextReceiver } from '../utils/hierarchy';
+
 const statusLabels = {
   awaiting: 'Awaiting',
   forwarded: 'Forwarded',
@@ -30,10 +35,12 @@ const rolePermissions = {
   principal: { accept: true, reject: true, requestEdit: true },
   Manager: { accept: true, reject: true, requestEdit: true },
   manager: { accept: true, reject: true, requestEdit: true },
-  HOD: { accept: false, reject: true, requestEdit: true },
-  hod: { accept: false, reject: true, requestEdit: true },
-  FacultyAdvisor: { accept: false, reject: true, requestEdit: true },
-  facultyadvisor: { accept: false, reject: true, requestEdit: true },
+  HOD: { accept: true, reject: true, requestEdit: true },
+  hod: { accept: true, reject: true, requestEdit: true },
+  FacultyAdvisor: { accept: true, reject: true, requestEdit: true },
+  facultyadvisor: { accept: true, reject: true, requestEdit: true },
+  Faculty: { accept: true, reject: true, requestEdit: true },
+  faculty: { accept: true, reject: true, requestEdit: true },
 };
 const FORWARD_OPTIONS = [
   { label: 'Head of Department (HoD)', value: 'HOD' },
@@ -55,6 +62,7 @@ export default function ReceivedFormView() {
   const [canHodAccept, setCanHodAccept] = useState(false);
   const [showSidePanel, setShowSidePanel] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
   const letterRef = useRef(null);
 
   useEffect(() => {
@@ -103,17 +111,19 @@ export default function ReceivedFormView() {
     fetchForm();
   }, [id]);
 
-const handleAction = async (action) => {
-    if (!form || !window.confirm(`Are you sure you want to ${action} this form?`)) {
+  const handleAction = async (action, overrideForwardTo) => {
+    if (!form) {
+      setError('Form data not available');
       return;
     }
 
     setSaving(true);
     setError('');
     try {
+      const finalForwardTo = overrideForwardTo || forwardTo;
       let newTo = Array.isArray(form.to) ? [...form.to] : [form.to];
-      if (action === 'forward' && forwardTo && !newTo.includes(forwardTo)) {
-        newTo.push(forwardTo);
+      if (action === 'forward' && finalForwardTo && !newTo.includes(finalForwardTo)) {
+        newTo.push(finalForwardTo);
       }
       
       const formType = form.owner === 'student' ? 'student' : 'faculty';
@@ -135,11 +145,12 @@ const handleAction = async (action) => {
       if (action !== 'forward') {
         setShowSidePanel(false);
       }
-
+      toast.success('Action completed successfully!');
     } catch (err) {
       // You can also improve error handling to be more specific
       const message = err.response?.data?.message || 'Failed to update.';
       setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -150,71 +161,33 @@ const handleAction = async (action) => {
   if (!form) return null;
 
   const status = form.status || 'awaiting';
-  const statusLabel = statusLabels[status] || status;
-  const statusColor = statusColors[status] || '#888';
-  const isFinal = ['accepted','rejected'].includes((status || '').toLowerCase());
+  const userRoleLower = userRole ? userRole.toLowerCase() : '';
+  const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
+  const hasActed = userActions.some(h => 
+    h.action.toLowerCase().includes('forwarded') || 
+    ['accepted', 'approved', 'rejected', 'not_approved'].some(st => h.action.toLowerCase().includes(st))
+  );
+
+  let actedStatus = 'forwarded';
+  if (hasActed && userActions.length > 0) {
+    const lastAction = userActions[userActions.length - 1].action.toLowerCase();
+    if (lastAction.includes('not_approved')) actedStatus = 'not_approved';
+    else if (lastAction.includes('approved')) actedStatus = 'approved';
+    else if (lastAction.includes('accepted')) actedStatus = 'accepted';
+    else if (lastAction.includes('rejected')) actedStatus = 'rejected';
+  }
+
+  const statusLabel = hasActed ? (statusLabels[actedStatus] || actedStatus) : (statusLabels[status] || status);
+  const statusColor = hasActed ? (statusColors[actedStatus] || '#888') : (statusColors[status] || '#888');
+  const isFinal = ['accepted','rejected'].includes((status || '').toLowerCase()) || hasActed;
 
   const handleDownloadPdf = async () => {
     setDownloading(true);
     try {
-      // Page setup
-      const doc = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 14;
-
-      // 1) Capture letter panel as image on first page
-      if (letterRef.current) {
-        const canvas = await html2canvas(letterRef.current, { scale: 2 });
-        const imgData = canvas.toDataURL('image/png');
-        const imgWidth = pageWidth - margin * 2;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        doc.addImage(imgData, 'PNG', margin, margin, imgWidth, Math.min(imgHeight, pageHeight - margin * 2));
-      }
-
-      // 2) Add roadmap/history as text on subsequent page(s)
-      doc.addPage();
-      let y = margin;
-      doc.setFontSize(16);
-      doc.text('Form Roadmap & Remarks', margin, y);
-      y += 8;
-      doc.setDrawColor(200);
-      doc.line(margin, y, pageWidth - margin, y);
-      y += 8;
-      doc.setFontSize(12);
-
-      const lines = [];
-      lines.push(`Form: #${form.formNo || form._id}`);
-      lines.push(`Subject: ${form.subject}`);
-      lines.push(`Department: ${form.department}`);
-      lines.push(`Submitted By: ${form.submittedBy}`);
-      lines.push(`Status: ${form.status}`);
-      lines.push('');
-      lines.push('History:');
-      (form.history || []).forEach((h, idx) => {
-        const ts = h.timestamp ? new Date(h.timestamp).toLocaleString() : '';
-        const header = `${idx + 1}. [${ts}] ${h.by || 'system'} - ${h.action || ''}`;
-        lines.push(header);
-        if (h.remarks) {
-          lines.push(`   Remarks: ${h.remarks}`);
-        }
-        lines.push('');
-      });
-
-      const content = doc.splitTextToSize(lines.join('\n'), pageWidth - margin * 2);
-      content.forEach((line) => {
-        if (y > pageHeight - margin) {
-          doc.addPage();
-          y = margin;
-        }
-        doc.text(line, margin, y);
-        y += 6;
-      });
-
-      doc.save(`form_${form.formNo || form._id}_roadmap.pdf`);
+      await generateOfficialPdf(form);
     } catch (e) {
       console.error(e);
-      alert('Failed to generate PDF');
+      toast.error('Failed to generate PDF');
     } finally {
       setDownloading(false);
     }
@@ -244,15 +217,15 @@ const handleAction = async (action) => {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '80vh', background: '#f8f9fa', padding: 40 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '80vh', background: 'var(--bg-color, #f8f9fa)', padding: 40 }}>
         {/* Status Bar */}
         <div style={{ width: 16, minHeight: 400, background: statusColor, borderRadius: 8, marginRight: 32, position: 'relative' }}>
-          <div style={{ position: 'absolute', top: 20, left: 24, color: statusColor, fontWeight: 'bold', writingMode: 'vertical-rl', textOrientation: 'mixed', fontSize: 18, letterSpacing: 2 }}>
+          <div style={{ position: 'absolute', top: 20, right: 24, color: statusColor, fontWeight: 'bold', writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)', fontSize: 18, letterSpacing: 2 }}>
             {statusLabel}
           </div>
         </div>
         {/* Letter Format */}
-        <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 2px 12px #eee', padding: 40, minWidth: 400, maxWidth: 700, width: '100%', position: 'relative' }}>
+        <div style={{ background: 'var(--card-bg, #fff)', borderRadius: 12, boxShadow: 'var(--shadow-md, 0 2px 12px rgba(0,0,0,0.1))', padding: 40, minWidth: 400, maxWidth: 700, width: '100%', position: 'relative' }}>
           <div style={{ textAlign: 'right', marginBottom: 16 }}>
             <div><b>Date:</b> {form.createdAt ? new Date(form.createdAt).toLocaleString() : ''}</div>
             <div><b>No:</b> {form.formNo || form._id}</div>
@@ -307,8 +280,6 @@ const handleAction = async (action) => {
           
           {/* Action Button */}
           <div style={{ marginTop: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {/* Download roadmap for FA/HOD/Principal */}
-            {['FacultyAdvisor','HOD','Principal','facultyadvisor','hod','principal'].includes(userRole) && (
               <button
                 onClick={handleDownloadPdf}
                 disabled={downloading}
@@ -319,7 +290,6 @@ const handleAction = async (action) => {
               >
                 ⬇️ Download PDF
               </button>
-            )}
             <button
               onClick={() => setShowSidePanel(true)}
               style={{
@@ -426,7 +396,7 @@ const handleAction = async (action) => {
                     fontSize: '0.8rem',
                     marginLeft: '8px'
                   }}>
-                    {form.status || 'awaiting'}
+                    {statusLabels[form.status?.toLowerCase()] || form.status || 'Awaiting'}
                   </span>
                 </div>
                 <div><strong>Submitted By:</strong> {form.submittedBy}</div>
@@ -443,9 +413,14 @@ const handleAction = async (action) => {
                 {((rolePermissions[userRole]?.accept) || ( (userRole === 'HOD' || userRole === 'hod') && canHodAccept )) && !isFinal && (
                   <button
                     onClick={() => {
-                      if (window.confirm('Are you sure you want to accept this form?')) {
-                        handleAction('accepted');
-                      }
+                      setConfirmDialog({
+                        isOpen: true,
+                        message: 'Are you sure you want to accept this form?',
+                        onConfirm: () => {
+                          setConfirmDialog({ isOpen: false });
+                          handleAction('accepted');
+                        }
+                      });
                     }}
                     disabled={saving}
                     style={{
@@ -468,12 +443,17 @@ const handleAction = async (action) => {
                   <button
                     onClick={() => {
                       if (!remarks.trim()) {
-                        alert('Please provide remarks when rejecting a form.');
+                        toast.error('Please provide remarks when rejecting a form.');
                         return;
                       }
-                      if (window.confirm('Are you sure you want to reject this form?')) {
-                        handleAction('rejected');
-                      }
+                      setConfirmDialog({
+                        isOpen: true,
+                        message: 'Are you sure you want to reject this form?',
+                        onConfirm: () => {
+                          setConfirmDialog({ isOpen: false });
+                          handleAction('rejected');
+                        }
+                      });
                     }}
                     disabled={saving}
                     style={{
@@ -496,12 +476,17 @@ const handleAction = async (action) => {
                   <button
                     onClick={() => {
                       if (!remarks.trim()) {
-                        alert('Please provide remarks when requesting edits.');
+                        toast.error('Please provide remarks when requesting edits.');
                         return;
                       }
-                      if (window.confirm('Are you sure you want to request edits for this form?')) {
-                        handleAction('edit');
-                      }
+                      setConfirmDialog({
+                        isOpen: true,
+                        message: 'Are you sure you want to request edits for this form?',
+                        onConfirm: () => {
+                          setConfirmDialog({ isOpen: false });
+                          handleAction('edit');
+                        }
+                      });
                     }}
                     disabled={saving}
                     style={{
@@ -524,12 +509,17 @@ const handleAction = async (action) => {
                   <button
                     onClick={() => {
                       if (!remarks.trim()) {
-                        alert('Please provide remarks when marking as Not Approved.');
+                        toast.error('Please provide remarks when marking as Not Approved.');
                         return;
                       }
-                      if (window.confirm('Are you sure you want to mark this as Not Approved?')) {
-                        handleAction('not_approved');
-                      }
+                      setConfirmDialog({
+                        isOpen: true,
+                        message: 'Are you sure you want to mark this as Not Approved?',
+                        onConfirm: () => {
+                          setConfirmDialog({ isOpen: false });
+                          handleAction('not_approved');
+                        }
+                      });
                     }}
                     disabled={saving}
                     style={{
@@ -550,84 +540,112 @@ const handleAction = async (action) => {
               </div>
             </div>
 
-            {/* Remarks Section */}
-            <div style={{ marginBottom: 20 }}>
-              <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
-                💬 Remarks
-              </h4>
-              <textarea
-                value={remarks}
-                onChange={e => setRemarks(e.target.value)}
-                placeholder="Add your remarks here..."
-                style={{
-                  width: '100%',
-                  minHeight: 80,
-                  padding: 12,
-                  border: '1px solid #d1d5db',
-                  borderRadius: 6,
-                  fontSize: '0.9rem',
-                  resize: 'vertical',
-                  fontFamily: 'inherit',
-                  background: '#f8fafc'
-                }}
-                disabled={isFinal}
-              />
-            </div>
+            {hasActed ? (() => {
+              const actionText = userActions.length > 0 ? userActions[userActions.length - 1].action.toLowerCase() : '';
+              let displayText = 'Action Completed';
+              if (actionText.includes('forwarded to')) {
+                const role = actionText.split('forwarded to')[1].trim();
+                displayText = `Forwarded to ${role.charAt(0).toUpperCase() + role.slice(1)}`;
+              } else if (actionText.includes('not_approved')) {
+                displayText = 'Not Approved';
+              } else if (actionText.includes('approved')) {
+                displayText = 'Approved';
+              } else if (actionText.includes('accepted')) {
+                displayText = 'Accepted';
+              } else if (actionText.includes('rejected')) {
+                displayText = 'Rejected';
+              }
+              
+              return (
+                <div style={{ marginBottom: 20, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #d1d5db', textAlign: 'center' }}>
+                  <h4 style={{ margin: 0, color: '#3b82f6', fontSize: '1rem' }}>
+                    {displayText}
+                  </h4>
+                </div>
+              );
+            })() : (
+              <>
+                {/* Remarks Section */}
+                <div style={{ marginBottom: 20 }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
+                    💬 Remarks
+                  </h4>
+                  <textarea
+                    value={remarks}
+                    onChange={e => setRemarks(e.target.value)}
+                    placeholder="Add your remarks here..."
+                    style={{
+                      width: '100%',
+                      minHeight: 80,
+                      padding: 12,
+                      border: '1px solid #d1d5db',
+                      borderRadius: 6,
+                      fontSize: '0.9rem',
+                      resize: 'none',
+                      fontFamily: 'inherit',
+                      background: '#f8fafc'
+                    }}
+                    disabled={isFinal}
+                  />
+                </div>
 
-            {/* Forward To Section */}
-            <div style={{ marginBottom: 20 }}>
-              <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
-                📤 Forward To
-              </h4>
-              <select
-                value={forwardTo}
-                onChange={e => setForwardTo(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: 10,
-                  border: '1px solid #d1d5db',
-                  borderRadius: 6,
-                  fontSize: '0.9rem',
-                  background: '#f8fafc'
-                }}
-                disabled={isFinal}
-              >
-                <option value="">Select person to forward</option>
-                {FORWARD_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+                {/* Forward To Section */}
+                <div style={{ marginBottom: 20 }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
+                    📤 Forward To
+                  </h4>
+                  
+                  {(() => {
+                    const nextRcv = getNextReceiver(form.category || form.subject, form.to);
+                    const targetOpt = nextRcv ? { label: nextRcv, value: nextRcv } : null;
+                    if (!targetOpt) return null;
 
-              {forwardTo && !isFinal && (
-                <button
-                  onClick={() => {
-                    if (!remarks) {
-                      alert('Please add remarks before forwarding');
-                      return;
-                    }
-                    if (window.confirm(`Are you sure you want to forward this form to ${forwardTo}?`)) {
-                      handleAction('forward');
-                    }
-                  }}
-                  disabled={saving || !remarks || !forwardTo}
-                  style={{
-                    background: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '8px 16px',
-                    fontSize: '0.85rem',
-                    fontWeight: '600',
-                    cursor: saving || !remarks || !forwardTo ? 'not-allowed' : 'pointer',
-                    opacity: saving || !remarks || !forwardTo ? 0.6 : 1,
-                    marginTop: 8,
-                    width: '100%'
-                  }}
-                >
-                  📤 Forward Form
-                </button>
-              )}
-            </div>
+                    return (
+                      <div style={{
+                        padding: 12,
+                        border: '1px solid #d1d5db',
+                        borderRadius: 6,
+                        background: '#f8fafc',
+                        fontSize: '0.9rem',
+                        color: '#374151'
+                      }}>
+                        <strong>Forward to:</strong> {targetOpt.label}
+                        {!isFinal && (
+                          <button
+                            onClick={() => {
+                              setConfirmDialog({
+                                isOpen: true,
+                                message: `Are you sure you want to forward this form to ${targetOpt.label}?`,
+                                onConfirm: () => {
+                                  setConfirmDialog({ isOpen: false });
+                                  handleAction('forward', targetOpt.value);
+                                }
+                              });
+                            }}
+                            disabled={saving}
+                            style={{
+                              background: '#3b82f6',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: 6,
+                              padding: '8px 16px',
+                              fontSize: '0.85rem',
+                              fontWeight: '600',
+                              cursor: saving ? 'not-allowed' : 'pointer',
+                              opacity: saving ? 0.6 : 1,
+                              marginTop: 8,
+                              width: '100%'
+                            }}
+                          >
+                            📤 Forward Form
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </>
+            )}
 
             {/* Clear/Close Button */}
             <button
@@ -664,6 +682,12 @@ const handleAction = async (action) => {
           </div>
         </>
       )}
+      <ConfirmModal 
+        isOpen={confirmDialog.isOpen} 
+        message={confirmDialog.message} 
+        onConfirm={confirmDialog.onConfirm} 
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} 
+      />
     </>
   );
 } 

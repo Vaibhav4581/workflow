@@ -1,3 +1,4 @@
+import { ROLES, isRole } from '../utils/roles';
                   import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -37,7 +38,7 @@ function MySubmission() {
     const fetchSubmissions = async () => {
       try {
         let url = '';
-        if (role === 'Student' || role === 'student') {
+        if (isRole(role, ROLES.STUDENT)) {
           url = `/getSFormsByUser?email=${encodeURIComponent(email)}`;
         } else {
           url = `/getFFormsByUser?email=${encodeURIComponent(email)}`;
