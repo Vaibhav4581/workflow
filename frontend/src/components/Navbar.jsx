@@ -104,8 +104,8 @@ function Navbar() {
               <Link to="/dashboard" onClick={closeMobileMenu}>Dashboard</Link>
             )}
             <Link to="/settings" onClick={closeMobileMenu}>Settings</Link>
-            {/* Hide New Submission for Principal users since they only review forms */}
-            {!(isRole(userRole, ROLES.PRINCIPAL)) && (
+            {/* Only show New Submission for allowed originators */}
+            {['faculty', 'facultyadvisor', 'juniorsuperintendent', 'accountssection', 'driver', 'hrsection', 'staff', 'student'].includes(userRole?.toLowerCase()) && (
               <Link to="/submission/new" onClick={closeMobileMenu}>New Submission</Link>
             )}
             <NotificationBell />

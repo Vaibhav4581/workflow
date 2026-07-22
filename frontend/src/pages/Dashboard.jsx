@@ -822,13 +822,15 @@ function Dashboard() {
 
       {viewMode === 'current' ? (
         <>
-          <RoleDashboard 
-            userRole={userRole} 
-            submissions={submissions} 
-            navigate={navigate} 
-            setSubmissions={setSubmissions} 
-          />
-          {userRole?.toLowerCase() !== 'student' && (() => {
+          {['faculty', 'facultyadvisor', 'juniorsuperintendent', 'accountssection', 'driver', 'hrsection', 'staff', 'student'].includes(userRole?.toLowerCase()) && (
+            <RoleDashboard 
+              userRole={userRole} 
+              submissions={submissions.filter(s => !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()))} 
+              navigate={navigate} 
+              setSubmissions={setSubmissions} 
+            />
+          )}
+          {userRole?.toLowerCase() !== 'student' && !['faculty', 'facultyadvisor'].includes(userRole?.toLowerCase()) && (() => {
             const userRoleLower = userRole ? userRole.toLowerCase() : '';
             const isFormForwardedByUser = (form) => {
               const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];

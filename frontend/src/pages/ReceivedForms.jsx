@@ -31,12 +31,16 @@ export default function ReceivedForms({ previewMode }) {
   const token = jwtDecode(localStorage.getItem('token'));
   const userRoleLower = token?.role ? token.role.toLowerCase() : '';
   const isFormForwardedByUser = (form) => {
-    const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
-    return userActions.some(h => h.action.toLowerCase().includes('forwarded'));
+    if (!form.to) return false;
+    const toArray = Array.isArray(form.to) ? form.to : [form.to];
+    if (toArray.length === 0) return false;
+    const isLast = toArray[toArray.length - 1].toLowerCase() === userRoleLower;
+    const isInArray = toArray.some(role => role.toLowerCase() === userRoleLower);
+    return isInArray && !isLast;
   };
 
   const pendingReceivedForms = formsToShow.filter(s => 
-    !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()) && 
+    !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled', 'edit'].includes(s.status?.toLowerCase()) && 
     !isFormForwardedByUser(s)
   );
 

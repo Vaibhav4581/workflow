@@ -30,18 +30,17 @@ const statusColors = {
 };
 
 // Role permissions map
-const rolePermissions = {
-  Principal: { accept: true, reject: true, requestEdit: true },
-  principal: { accept: true, reject: true, requestEdit: true },
-  Manager: { accept: true, reject: true, requestEdit: true },
-  manager: { accept: true, reject: true, requestEdit: true },
-  HOD: { accept: true, reject: true, requestEdit: true },
-  hod: { accept: true, reject: true, requestEdit: true },
-  FacultyAdvisor: { accept: true, reject: true, requestEdit: true },
-  facultyadvisor: { accept: true, reject: true, requestEdit: true },
-  Faculty: { accept: true, reject: true, requestEdit: true },
-  faculty: { accept: true, reject: true, requestEdit: true },
-};
+const defaultPermissions = { accept: true, reject: true, requestEdit: true };
+const restrictedRoles = ['faculty', 'facultyadvisor'];
+
+const rolePermissions = new Proxy({}, {
+  get: function(target, prop) {
+    if (typeof prop === 'string' && restrictedRoles.includes(prop.toLowerCase())) {
+      return { accept: false, reject: false, requestEdit: false };
+    }
+    return defaultPermissions;
+  }
+});
 const FORWARD_OPTIONS = [
   { label: 'Head of Department (HoD)', value: 'HOD' },
   { label: 'Principal', value: 'Principal' },
@@ -163,10 +162,11 @@ export default function ReceivedFormView() {
   const status = form.status || 'awaiting';
   const userRoleLower = userRole ? userRole.toLowerCase() : '';
   const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
-  const hasActed = userActions.some(h => 
-    h.action.toLowerCase().includes('forwarded') || 
-    ['accepted', 'approved', 'rejected', 'not_approved'].some(st => h.action.toLowerCase().includes(st))
-  );
+  const isLastReceiver = Array.isArray(form.to) 
+    ? form.to[form.to.length - 1].toLowerCase() === userRoleLower
+    : form.to?.toLowerCase() === userRoleLower;
+
+  const hasActed = !isLastReceiver || ['accepted', 'approved', 'rejected', 'not_approved', 'edit'].includes(form.status?.toLowerCase());
 
   let actedStatus = 'forwarded';
   if (hasActed && userActions.length > 0) {
@@ -175,6 +175,9 @@ export default function ReceivedFormView() {
     else if (lastAction.includes('approved')) actedStatus = 'approved';
     else if (lastAction.includes('accepted')) actedStatus = 'accepted';
     else if (lastAction.includes('rejected')) actedStatus = 'rejected';
+    else if (form.status === 'edit') actedStatus = 'edit';
+  } else if (hasActed && form.status === 'edit') {
+    actedStatus = 'edit';
   }
 
   const statusLabel = hasActed ? (statusLabels[actedStatus] || actedStatus) : (statusLabels[status] || status);
@@ -504,39 +507,7 @@ export default function ReceivedFormView() {
                     ✏️ Request Edit
                   </button>
                 )}
-                {/* Not Approved button for allowed roles and when not final */}
-                {rolePermissions[userRole]?.reject && !isFinal && (
-                  <button
-                    onClick={() => {
-                      if (!remarks.trim()) {
-                        toast.error('Please provide remarks when marking as Not Approved.');
-                        return;
-                      }
-                      setConfirmDialog({
-                        isOpen: true,
-                        message: 'Are you sure you want to mark this as Not Approved?',
-                        onConfirm: () => {
-                          setConfirmDialog({ isOpen: false });
-                          handleAction('not_approved');
-                        }
-                      });
-                    }}
-                    disabled={saving}
-                    style={{
-                      background: '#f97316',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: 6,
-                      padding: '10px 16px',
-                      fontSize: '0.9rem',
-                      fontWeight: '600',
-                      cursor: saving ? 'not-allowed' : 'pointer',
-                      opacity: saving ? 0.6 : 1
-                    }}
-                  >
-                    ⚠️ Not Approved
-                  </button>
-                )}
+
               </div>
             </div>
 
@@ -590,6 +561,7 @@ export default function ReceivedFormView() {
                 </div>
 
                 {/* Forward To Section */}
+                {userRole?.toLowerCase() !== 'maintenancesection' && (
                 <div style={{ marginBottom: 20 }}>
                   <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
                     📤 Forward To
@@ -644,6 +616,7 @@ export default function ReceivedFormView() {
                     );
                   })()}
                 </div>
+                )}
               </>
             )}
 

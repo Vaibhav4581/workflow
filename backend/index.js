@@ -1067,7 +1067,7 @@ app.listen(PORT, () => {
 
 
 app.put('/updateFormRemarksStatus', async (req, res) => {
-  const { formId, formType, remarks, status, to, by } = req.body;
+  const { formId, formType, remarks, status, to, by, category, subject, subjectElaboration, department, details, attachments, others } = req.body;
 
   try {
     let model;
@@ -1094,6 +1094,13 @@ app.put('/updateFormRemarksStatus', async (req, res) => {
     if (remarks !== undefined) updateFields.remarks = remarks;
     if (status !== undefined) updateFields.status = status;
     if (to !== undefined) updateFields.to = to;
+    if (category !== undefined) updateFields.category = category;
+    if (subject !== undefined) updateFields.subject = subject;
+    if (subjectElaboration !== undefined) updateFields.subjectElaboration = subjectElaboration;
+    if (department !== undefined) updateFields.department = department;
+    if (details !== undefined) updateFields.details = details;
+    if (attachments !== undefined) updateFields.attachments = attachments;
+    if (others !== undefined) updateFields.others = others;
 
     // Construct history action string
     let action = '';

@@ -17,17 +17,17 @@ const statusColors = {
   edit: '#f59e0b', // orange - needs editing/revision
 };
 
-// Role permissions map
-const rolePermissions = {
-  Principal: { accept: true, reject: true, requestEdit: true },
-  principal: { accept: true, reject: true, requestEdit: true },
-  Manager: { accept: true, reject: true, requestEdit: true },
-  manager: { accept: true, reject: true, requestEdit: true },
-  HOD: { accept: false, reject: true, requestEdit: true },
-  hod: { accept: false, reject: true, requestEdit: true },
-  FacultyAdvisor: { accept: false, reject: true, requestEdit: true },
-  facultyadvisor: { accept: false, reject: true, requestEdit: true },
-};
+const defaultPermissions = { accept: true, reject: true, requestEdit: true };
+const restrictedRoles = ['faculty', 'facultyadvisor'];
+
+const rolePermissions = new Proxy({}, {
+  get: function(target, prop) {
+    if (typeof prop === 'string' && restrictedRoles.includes(prop.toLowerCase())) {
+      return { accept: false, reject: false, requestEdit: false };
+    }
+    return defaultPermissions;
+  }
+});
 
 function PrincipalPage() {
   const navigate = useNavigate();
@@ -283,12 +283,18 @@ function PrincipalPage() {
       {viewMode === 'current' ? (() => {
         const userRoleLower = userRole ? userRole.toLowerCase() : '';
         const isFormForwardedByUser = (form) => {
-          const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
-          return userActions.some(h => h.action.toLowerCase().includes('forwarded'));
+          if (!form.to) return false;
+          const toArray = Array.isArray(form.to) ? form.to : [form.to];
+          // If the user's role is not the last one in the 'to' array, they have forwarded it.
+          // Note: we also consider it 'forwarded' if their role is in the array but not the last element.
+          if (toArray.length === 0) return false;
+          const isLast = toArray[toArray.length - 1].toLowerCase() === userRoleLower;
+          const isInArray = toArray.some(role => role.toLowerCase() === userRoleLower);
+          return isInArray && !isLast;
         };
 
         const pendingReceivedForms = receivedSubmissions.filter(s => 
-          !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'].includes(s.status?.toLowerCase()) && 
+          !['accepted', 'approved', 'rejected', 'not_approved', 'cancelled', 'edit'].includes(s.status?.toLowerCase()) && 
           !isFormForwardedByUser(s)
         );
 
@@ -511,10 +517,12 @@ function PrincipalPage() {
             {selectedForm ? (() => {
               const userRoleLower = userRole ? userRole.toLowerCase() : '';
               const userActions = selectedForm.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
-              const hasActed = userActions.some(h => 
-                h.action.toLowerCase().includes('forwarded') || 
-                ['accepted', 'approved', 'rejected', 'not_approved'].some(st => h.action.toLowerCase().includes(st))
-              );
+              const isLastReceiver = Array.isArray(selectedForm.to) 
+                ? selectedForm.to[selectedForm.to.length - 1].toLowerCase() === userRoleLower
+                : selectedForm.to?.toLowerCase() === userRoleLower;
+
+              const hasActed = !isLastReceiver || ['accepted', 'approved', 'rejected', 'not_approved', 'edit'].includes(selectedForm.status?.toLowerCase());
+              
               let actedStatus = 'forwarded';
               if (hasActed && userActions.length > 0) {
                 const lastAction = userActions[userActions.length - 1].action.toLowerCase();
@@ -522,6 +530,9 @@ function PrincipalPage() {
                 else if (lastAction.includes('approved')) actedStatus = 'approved';
                 else if (lastAction.includes('accepted')) actedStatus = 'accepted';
                 else if (lastAction.includes('rejected')) actedStatus = 'rejected';
+                else if (selectedForm.status === 'edit') actedStatus = 'edit';
+              } else if (hasActed && selectedForm.status === 'edit') {
+                actedStatus = 'edit';
               }
 
               const displayStatus = hasActed ? (statusLabels[actedStatus] || actedStatus) : (selectedForm.status || 'awaiting');

@@ -124,8 +124,19 @@ function NewSubmission() {
   // ── Auth ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     try {
-      const token = jwtDecode(localStorage.getItem('token'));
-      if (!token) { navigate('/login'); return; }
+      const tokenStr = localStorage.getItem('token');
+      if (!tokenStr) { navigate('/login'); return; }
+      const token = jwtDecode(tokenStr);
+      
+      const role = token.role?.toLowerCase() || '';
+      const allowedOriginators = ['faculty', 'facultyadvisor', 'juniorsuperintendent', 'accountssection', 'driver', 'hrsection', 'staff', 'student'];
+      
+      if (!allowedOriginators.includes(role)) {
+        toast.error('You do not have permission to create new submissions.');
+        navigate('/dashboard');
+        return;
+      }
+      
       setUserRole(token.role);
     } catch (err) {
       console.error('Invalid token');
@@ -227,8 +238,12 @@ function NewSubmission() {
       const attachments = await buildAttachments(attachmentsStudent);
       if (editMode && editFormId) {
         await axios.put('/updateFormRemarksStatus', {
-          formId: editFormId, formType: 'student', status: 'edit',
+          formId: editFormId, formType: 'student', status: 'awaiting',
           remarks: formStudent.additionalRemarks || 'Updated by student', by: token.email,
+          department: formStudent.department,
+          details: formStudent.details,
+          attachments,
+          others: formStudent.toOthers
         });
         toast.success('Form remarks updated and resubmitted successfully!');
       } else {
@@ -252,8 +267,12 @@ function NewSubmission() {
       const attachments = await buildAttachments(attachmentsStaff);
       if (editMode && editFormId) {
         await axios.put('/updateFormRemarksStatus', {
-          formId: editFormId, formType: 'faculty', status: 'edit',
+          formId: editFormId, formType: 'faculty', status: 'awaiting',
           remarks: formStaff.additionalRemarks || 'Updated by faculty', by: token.email,
+          department: formStaff.department,
+          details: formStaff.details,
+          attachments,
+          others: formStaff.toOthers
         });
         toast.success('Form remarks updated and resubmitted successfully!');
       } else {

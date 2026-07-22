@@ -30,18 +30,17 @@ const statusColors = {
 };
 
 // Role permissions map
-const rolePermissions = {
-  Principal: { accept: true, reject: true, requestEdit: true },
-  principal: { accept: true, reject: true, requestEdit: true },
-  Manager: { accept: true, reject: true, requestEdit: true },
-  manager: { accept: true, reject: true, requestEdit: true },
-  HOD: { accept: true, reject: true, requestEdit: true },
-  hod: { accept: true, reject: true, requestEdit: true },
-  FacultyAdvisor: { accept: true, reject: true, requestEdit: true },
-  facultyadvisor: { accept: true, reject: true, requestEdit: true },
-  Faculty: { accept: true, reject: true, requestEdit: true },
-  faculty: { accept: true, reject: true, requestEdit: true },
-};
+const defaultPermissions = { accept: true, reject: true, requestEdit: true };
+const restrictedRoles = ['faculty', 'facultyadvisor'];
+
+const rolePermissions = new Proxy({}, {
+  get: function(target, prop) {
+    if (typeof prop === 'string' && restrictedRoles.includes(prop.toLowerCase())) {
+      return { accept: false, reject: false, requestEdit: false };
+    }
+    return defaultPermissions;
+  }
+});
 
 export default function SubmissionView() {
   const { id } = useParams();
@@ -112,10 +111,12 @@ export default function SubmissionView() {
   
   const userRoleLower = currentUser?.role ? currentUser.role.toLowerCase() : '';
   const userActions = submission.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];
-  const hasActed = userActions.some(h => 
-    h.action.toLowerCase().includes('forwarded') || 
-    ['accepted', 'approved', 'rejected', 'not_approved'].some(st => h.action.toLowerCase().includes(st))
-  );
+  
+  const isLastReceiver = Array.isArray(submission.to) 
+    ? submission.to[submission.to.length - 1].toLowerCase() === userRoleLower
+    : submission.to?.toLowerCase() === userRoleLower;
+
+  const hasActed = !isLastReceiver || ['accepted', 'approved', 'rejected', 'not_approved', 'edit'].includes(submission.status?.toLowerCase());
 
   let actedStatus = 'forwarded';
   if (hasActed && userActions.length > 0) {
@@ -124,6 +125,9 @@ export default function SubmissionView() {
     else if (lastAction.includes('approved')) actedStatus = 'approved';
     else if (lastAction.includes('accepted')) actedStatus = 'accepted';
     else if (lastAction.includes('rejected')) actedStatus = 'rejected';
+    else if (submission.status === 'edit') actedStatus = 'edit';
+  } else if (hasActed && submission.status === 'edit') {
+    actedStatus = 'edit';
   }
 
   const statusLabel = hasActed ? (statusLabels[actedStatus] || actedStatus) : (statusLabels[status] || status);
@@ -678,26 +682,7 @@ export default function SubmissionView() {
                   </button>
                 )}
                 
-                {/* Not Approved button for acceptable roles */}
-                {rolePermissions[currentUser?.role]?.reject && (
-                  <button
-                    onClick={() => {
-                      if (!remarks.trim()) { toast.error('Please provide remarks when marking as Not Approved.'); return; }
-                      setConfirmDialog({
-                        isOpen: true,
-                        message: 'Are you sure you want to mark this as Not Approved?',
-                        onConfirm: () => {
-                          setConfirmDialog({ isOpen: false });
-                          handleFormAction('not_approved', remarks);
-                        }
-                      });
-                    }}
-                    disabled={isSubmitting}
-                    style={{ background: '#f97316', color: 'white', border: 'none', borderRadius: 6, padding: '10px 16px', fontSize: '0.9rem', fontWeight: '600', cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.6 : 1 }}
-                  >
-                    ⚠️ Not Approved
-                  </button>
-                )}
+
               </div>
             </div>
           )}

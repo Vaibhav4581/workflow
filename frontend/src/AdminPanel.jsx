@@ -17,6 +17,9 @@ function AdminPanel() {
   const [loading, setLoading] = useState(true);
   const [dynamicRoles, setDynamicRoles] = useState([]);
   const [dynamicDepartments, setDynamicDepartments] = useState([]);
+  
+  // User Filters
+  const [userFilters, setUserFilters] = useState({ search: '', role: '', department: '', year: '', div: '' });
 
   useEffect(() => {
     if (section === 'users') {
@@ -424,7 +427,7 @@ function AdminPanel() {
                   <button 
                     className="admin-btn" 
                     onClick={() => setShowAddUserForm(!showAddUserForm)}
-                    style={{ background: '#22c55e' }}
+                    style={{ background: '#22c55e', color: 'white' }}
                   >
                     {showAddUserForm ? 'Cancel' : '+ Add User'}
                   </button>
@@ -656,14 +659,14 @@ function AdminPanel() {
                       <button 
                         type="submit" 
                         className="admin-btn"
-                        style={{ background: '#3b82f6' }}
+                        style={{ background: '#3b82f6', color: 'white' }}
                       >
                         Create User
                       </button>
                       <button 
                         type="button" 
                         className="admin-btn"
-                        style={{ background: '#6b7280' }}
+                        style={{ background: '#6b7280', color: 'white' }}
                         onClick={() => setShowAddUserForm(false)}
                       >
                         Cancel
@@ -673,6 +676,58 @@ function AdminPanel() {
                 </div>
               )}
               
+              {/* User Filters UI */}
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <input 
+                  type="text" 
+                  placeholder="Search by name or email" 
+                  value={userFilters.search}
+                  onChange={(e) => setUserFilters({ ...userFilters, search: e.target.value })}
+                  style={{ flex: '1 1 200px', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                />
+                <select 
+                  value={userFilters.role} 
+                  onChange={(e) => setUserFilters({ ...userFilters, role: e.target.value })}
+                  style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                >
+                  <option value="">All Roles</option>
+                  {[...new Set(users.map(u => u.role))].filter(Boolean).map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <select 
+                  value={userFilters.department} 
+                  onChange={(e) => setUserFilters({ ...userFilters, department: e.target.value })}
+                  style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                >
+                  <option value="">All Departments</option>
+                  {[...new Set(users.map(u => u.department))].filter(Boolean).map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+                <input 
+                  type="number" 
+                  placeholder="Year" 
+                  value={userFilters.year}
+                  onChange={(e) => setUserFilters({ ...userFilters, year: e.target.value })}
+                  style={{ width: '80px', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                />
+                <input 
+                  type="text" 
+                  placeholder="Div" 
+                  value={userFilters.div}
+                  onChange={(e) => setUserFilters({ ...userFilters, div: e.target.value })}
+                  style={{ width: '80px', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                />
+                <button 
+                  onClick={() => setUserFilters({ search: '', role: '', department: '', year: '', div: '' })}
+                  className="admin-btn"
+                  style={{ background: '#94a3b8', color: 'white' }}
+                >
+                  Clear Filters
+                </button>
+              </div>
+
               <table className="admin-table">
                 <thead>
                   <tr>
@@ -693,7 +748,24 @@ function AdminPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map(u => (
+                  {(() => {
+                    const filteredUsers = users.filter(u => {
+                      const searchMatch = !userFilters.search || 
+                        ((u.fName || '') + ' ' + (u.lName || '')).toLowerCase().includes(userFilters.search.toLowerCase()) || 
+                        (u.email || '').toLowerCase().includes(userFilters.search.toLowerCase());
+                      const roleMatch = !userFilters.role || u.role === userFilters.role;
+                      const deptMatch = !userFilters.department || u.department === userFilters.department;
+                      const yearMatch = !userFilters.year || u.year?.toString() === userFilters.year;
+                      const divMatch = !userFilters.div || u.div?.toLowerCase() === userFilters.div.toLowerCase();
+                      
+                      return searchMatch && roleMatch && deptMatch && yearMatch && divMatch;
+                    });
+                    
+                    if (filteredUsers.length === 0) {
+                      return <tr><td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: '#6b7280' }}>No users found matching filters.</td></tr>;
+                    }
+                    
+                    return filteredUsers.map(u => (
                     <tr key={u.email} style={{ background: u.role === 'Admin' ? '#e0e7ef' : 'inherit' }}>
                       <td>
                         {u.role !== 'Admin' && (
@@ -712,19 +784,17 @@ function AdminPanel() {
                       <td>{u.div || ''}</td>
                       <td>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          <button className="admin-btn" onClick={() => startEditUser(u)}>Edit</button>
+                          <button className="admin-btn" style={{ width: '80px' }} onClick={() => startEditUser(u)}>Edit</button>
                           {u.role !== 'Admin' && (
-                            <button className="admin-btn admin-btn-danger" onClick={() => handleDeleteUser(u.email)}>Delete</button>
+                            <button className="admin-btn admin-btn-danger" style={{ width: '80px' }} onClick={() => handleDeleteUser(u.email)}>Delete</button>
                           )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    ));
+                  })()}
                 </tbody>
               </table>
-              {users.length === 0 && (
-                <div className="no-data">No users found.</div>
-              )}
               
               {/* Edit User Modal */}
               {editingEmail && (
@@ -803,8 +873,8 @@ function AdminPanel() {
                     </div>
                     
                     <div className="modal-actions" style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
-                      <button className="admin-btn" style={{ background: '#6b7280' }} onClick={cancelEditUser}>Cancel</button>
-                      <button className="admin-btn" style={{ background: '#3b82f6' }} onClick={() => saveEditUser(editingEmail)}>Save Changes</button>
+                      <button className="admin-btn" style={{ background: '#6b7280', color: 'white' }} onClick={cancelEditUser}>Cancel</button>
+                      <button className="admin-btn" style={{ background: '#3b82f6', color: 'white' }} onClick={() => saveEditUser(editingEmail)}>Save Changes</button>
                     </div>
                   </div>
                 </div>
