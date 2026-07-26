@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3096;
 
 const app = express();
 app.use(cors({
-  origin: ["https://submission.sngce.ac.in", "http://localhost:5173"], // frontend urls
+  origin: ["https://submission.sngce.ac.in", "http://localhost:5173", "http://localhost:5174", "http://localhost:5175"], // frontend urls
   credentials: true
 }));
 app.use(express.json({ limit: '15mb' }));
@@ -593,67 +593,83 @@ app.get('/getArchivedForms', async (req, res) => {
     const userYear = user?.year;
     const userDiv = user?.div;
 
-    const finalStatuses = ['accepted', 'approved', 'rejected', 'not_approved', 'cancelled'];
+    const roleLower = (role || '').toLowerCase();
 
-    // 1. Forms submitted by this user that have final status
+    // ── 1. Forms SUBMITTED by this user ────────────────────────────────────
     const [submittedStudent, submittedFaculty] = await Promise.all([
-      sFormModel.find().select('-attachment -attachments').lean(),
-      fFormModel.find().select('-attachment -attachments').lean(),
+      sFormModel.find({ submittedBy: email }).select('-attachment -attachments').lean(),
+      fFormModel.find({ submittedBy: email }).select('-attachment -attachments').lean(),
     ]);
 
     const submitted = [
       ...submittedStudent.map(s => ({ ...s, owner: 'student', type: 'student', category: 'submitted' })),
-      ...submittedFaculty.map(f => ({ ...f, owner: 'staff', type: 'faculty', category: 'submitted' })),
+      ...submittedFaculty.map(f => ({ ...f, owner: 'staff',   type: 'faculty', category: 'submitted' })),
     ];
 
-    // 2. Forms received by this user role that have final status
+    // ── 2. Forms RECEIVED by this user (role in the `to` array) ────────────
     let received = [];
-    const normalizedRole = (role || '').toString();
 
-    if (normalizedRole.toLowerCase() === 'student') {
-      // Students do not receive forms; only submitted applies
-      received = [];
-    } else {
-      // Faculty/Staff: filter by role and user context
-      const facultyReceived = await fFormModel.find({
-        status: { $in: finalStatuses },
-      }).select('-attachment -attachments').lean();
+    if (roleLower !== 'student') {
+      const roleVariants = getRoleQueryArray(role);
 
-      const allStudentFinal = await sFormModel.find({ status: { $in: finalStatuses } }).select('-attachment -attachments').lean();
-      const studentReceived = allStudentFinal.filter(form => {
-        const toArray = Array.isArray(form.to) ? form.to : [form.to];
-        const roleArray = getRoleQueryArray(role);
-        
-        // Match if the form is addressed to the current role (or any of its aliases/supersets like Faculty for FacultyAdvisor)
-        const isAddressedToRole = toArray.some(t => roleArray.includes(t) || roleArray.includes(normalizeRole(t)));
-        
-        const isAddressedToFaculty = toArray.some(t => ['Faculty', 'faculty'].includes(t));
-        
-        const isRecipient = isAddressedToRole && (
-          (normalizedRole === 'HOD' && form.department === userDepartment) ||
-          (normalizedRole === 'FacultyAdvisor' && (
-             isAddressedToFaculty || 
-             (form.department === userDepartment && (userYear == null || form.year == userYear) && (userDiv == null || form.div === userDiv))
-          )) ||
-          (!['HOD', 'FacultyAdvisor'].includes(normalizedRole))
-        );
-        return isRecipient;
-      });
+      // Faculty forms addressed to this role
+      let fFacQuery = { to: { $in: roleVariants } };
+      if (roleLower === 'hod' && userDepartment) fFacQuery.department = userDepartment;
+      const facReceived = await fFormModel.find(fFacQuery).select('-attachment -attachments').lean();
+
+      // Student forms addressed to this role, with dept/year/div scoping
+      let facStudentQuery = { to: { $in: roleVariants } };
+      if (roleLower === 'hod' && userDepartment) {
+        facStudentQuery.department = userDepartment;
+      } else if (roleLower === 'facultyadvisor') {
+        const advisorRoles = ['FacultyAdvisor', 'facultyadvisor', 'Faculty Advisor', 'Faculty', 'faculty'];
+        facStudentQuery = {
+          to: { $in: advisorRoles },
+          department: userDepartment,
+          ...(userYear != null ? { year: String(userYear) } : {}),
+          ...(userDiv       ? { div: userDiv }              : {}),
+        };
+      }
+      const stuReceived = await sFormModel.find(facStudentQuery).select('-attachment -attachments').lean();
 
       received = [
-        ...facultyReceived.map(f => ({ ...f, owner: 'staff', type: 'faculty', category: 'received' })),
-        ...studentReceived.map(s => ({ ...s, owner: 'student', type: 'student', category: 'received' })),
+        ...facReceived.map(f => ({ ...f, owner: 'staff',   type: 'faculty', category: 'received' })),
+        ...stuReceived.map(s => ({ ...s, owner: 'student', type: 'student', category: 'received' })),
       ];
     }
 
-    // Combine and sort by date desc
-    const response = [...submitted, ...received].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // ── 3. Forms FORWARDED by this user (acted on in history) ──────────────
+    // Look for any form where history has an entry with `by` matching this role
+    const historyRoleVariants = [role, roleLower, role.toLowerCase()];
+
+    const [facForwarded, stuForwarded] = await Promise.all([
+      fFormModel.find({ 'history.by': { $in: historyRoleVariants } }).select('-attachment -attachments').lean(),
+      sFormModel.find({ 'history.by': { $in: historyRoleVariants } }).select('-attachment -attachments').lean(),
+    ]);
+
+    const forwarded = [
+      ...facForwarded.map(f => ({ ...f, owner: 'staff',   type: 'faculty', category: 'forwarded' })),
+      ...stuForwarded.map(s => ({ ...s, owner: 'student', type: 'student', category: 'forwarded' })),
+    ];
+
+    // ── Merge, deduplicate by _id, sort newest first ────────────────────────
+    const allMap = new Map();
+    // Priority: submitted > received > forwarded (first write wins)
+    for (const form of [...submitted, ...received, ...forwarded]) {
+      const key = form._id.toString();
+      if (!allMap.has(key)) allMap.set(key, form);
+    }
+
+    const response = Array.from(allMap.values())
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
     res.status(200).send(response);
   } catch (error) {
     console.error('Error in /getArchivedForms:', error);
     res.status(500).send({ message: 'An error occurred while fetching archived forms', error: error.message });
   }
 });
+
 
 // Endpoint to get received forms for a user
 /**
@@ -735,7 +751,13 @@ app.get('/getReceivedFormsForUser', async (req, res) => {
           
           studentQuery = {
             $or: [
-              { to: { $in: facultyRoles } },
+              // Forms addressed to 'Faculty' in this advisor's department, year & div
+              {
+                to: { $in: facultyRoles },
+                department: department,
+                $or: faAssignments.map(a => ({ year: String(a.year), div: a.div }))
+              },
+              // Forms explicitly addressed to 'FacultyAdvisor' in this department/year/div
               {
                 to: { $in: advisorRoles },
                 department: department,
@@ -744,7 +766,8 @@ app.get('/getReceivedFormsForUser', async (req, res) => {
             ]
           };
         } else {
-          studentQuery = { to: { $in: ['Faculty', 'faculty'] } }; // No assignments, only see Faculty forms
+          // No FA assignments: only see forms addressed to Faculty in own department
+          studentQuery = { to: { $in: ['Faculty', 'faculty'] }, department: department };
         }
       }
 
@@ -1217,8 +1240,12 @@ async function notifyRecipients(form, formType, targetRole, department) {
     const isArray = Array.isArray(targetRole);
     const actualTarget = isArray ? targetRole[targetRole.length - 1] : targetRole;
 
+    // Guard: if no target, nothing to notify
+    if (!actualTarget) return;
+
     // Normalize
     const roleLower = actualTarget.toLowerCase();
+
 
     // 1. Find users with this role & department
     const query = {};

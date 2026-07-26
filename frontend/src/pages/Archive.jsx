@@ -16,7 +16,6 @@ const statusColors = {
 export default function Archive() {
   const [archivedForms, setArchivedForms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [userRole, setUserRole] = useState('');
@@ -45,7 +44,6 @@ export default function Archive() {
   }, []);
 
   const filteredForms = archivedForms.filter(form => {
-    const matchesFilter = filter === 'all' || (filter === 'accepted' ? (form.status === 'accepted' || form.status === 'approved') : form.status === filter);
     const matchesCategory = categoryFilter === 'all' || form.category === categoryFilter;
     const matchesSearch = searchTerm === '' || 
       form.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -53,7 +51,7 @@ export default function Archive() {
       form.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       form.formNo?.toString().includes(searchTerm);
     
-    return matchesFilter && matchesCategory && matchesSearch;
+    return matchesCategory && matchesSearch;
   });
 
   const handleViewForm = (form) => {
@@ -75,20 +73,8 @@ export default function Archive() {
           className="search-input"
         />
 
-        <div className="filter-buttons">
-          <button className={`filter-btn ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
-            All ({archivedForms.length})
-          </button>
-          <button className={`filter-btn ${filter === 'accepted' ? 'active' : ''}`} onClick={() => setFilter('accepted')}>
-            Approved ({archivedForms.filter(f => f.status === 'accepted' || f.status === 'approved').length})
-          </button>
-          <button className={`filter-btn ${filter === 'rejected' ? 'active' : ''}`} onClick={() => setFilter('rejected')}>
-            Rejected ({archivedForms.filter(f => f.status === 'rejected').length})
-          </button>
-        </div>
 
-        {(isRole(userRole, ROLES.HOD) || userRole === 'Principal' || userRole === 'Manager' || 
-          isRole(userRole, ROLES.FACULTY_ADVISOR) || userRole === 'admin') && (
+        {userRole?.toLowerCase() !== 'student' && (
           <div className="category-filter">
             <h4>Form Category:</h4>
             <div className="category-buttons">
@@ -101,6 +87,9 @@ export default function Archive() {
               <button className={`category-btn ${categoryFilter === 'received' ? 'active' : ''}`} onClick={() => setCategoryFilter('received')}>
                 Received ({archivedForms.filter(f => f.category === 'received').length})
               </button>
+              <button className={`category-btn ${categoryFilter === 'forwarded' ? 'active' : ''}`} onClick={() => setCategoryFilter('forwarded')}>
+                Forwarded ({archivedForms.filter(f => f.category === 'forwarded').length})
+              </button>
             </div>
           </div>
         )}
@@ -112,9 +101,9 @@ export default function Archive() {
             <div className="no-forms-icon">📁</div>
             <h3>No completed forms found</h3>
             <p>
-              {searchTerm || filter !== 'all' 
+              {searchTerm || categoryFilter !== 'all' 
                 ? 'Try adjusting your search or filter criteria'
-                : 'Forms will appear here once they are accepted or rejected'
+                : 'Forms will appear here once they are processed'
               }
             </p>
           </div>

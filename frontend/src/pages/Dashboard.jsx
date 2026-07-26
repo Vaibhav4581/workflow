@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { customConfirm } from '../utils/customConfirm';
 import Archive from './Archive';
 import { getNextReceiver } from '../utils/hierarchy';
+import { isNoDeptRole } from '../utils/roles';
 
 const statusColors = {
   awaiting: '#fbbf24', // yellow
@@ -469,13 +470,17 @@ function Dashboard() {
       setIsSaving(true);
       try {
         const token = jwtDecode(localStorage.getItem('token'));
+        // Build the full updated `to` array by appending the new recipient
+        const existingTo = Array.isArray(submission.to) ? submission.to : (submission.to ? [submission.to] : []);
+        const newTo = existingTo.includes(forwardTo) ? existingTo : [...existingTo, forwardTo];
+
         await axios.put('/updateFormRemarksStatus', {
           formId: submission._id,
           formType: submission.owner === 'student' ? 'student' : 'faculty',
           remarks,
           status: 'forwarded',
+          to: newTo,
           by: token.role,
-          forwardTo
         });
         
         setActiveSidePanelForm(null);
@@ -485,10 +490,11 @@ function Dashboard() {
         setReceivedSubmissions(prev =>
           prev.map(f =>
             f._id === submission._id
-              ? { ...f, status: 'forwarded', remarks }
+              ? { ...f, status: 'forwarded', remarks, to: newTo }
               : f
           )
         );
+        toast.success('Form forwarded successfully!');
       } catch (error) {
         console.error('Error updating form:', error);
         toast.error('Failed to update form. Please try again.');
@@ -713,7 +719,8 @@ function Dashboard() {
           return;
         }
 
-        if (!department && role !== 'Admin') {
+        // Roles that are institution-wide and don't belong to a specific department
+        if (!department && !isNoDeptRole(role)) {
           setShowDepartmentModal(true);
           setLoading(false);
           setLoadingReceived(false);
@@ -830,7 +837,7 @@ function Dashboard() {
               setSubmissions={setSubmissions} 
             />
           )}
-          {userRole?.toLowerCase() !== 'student' && !['faculty', 'facultyadvisor'].includes(userRole?.toLowerCase()) && (() => {
+          {userRole?.toLowerCase() !== 'student' && (() => {
             const userRoleLower = userRole ? userRole.toLowerCase() : '';
             const isFormForwardedByUser = (form) => {
               const userActions = form.history?.filter(h => h.by && h.by.toLowerCase() === userRoleLower) || [];

@@ -18,6 +18,7 @@ import MySubmission from './pages/MySubmission';
 import WelcomeAnimation from './pages/WelcomeAnimation';
 import SettingsPage from './pages/SettingsPage';
 import PrivateRoute from './components/PrivateRoute';
+import Footer from './components/Footer';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -40,7 +41,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <div className="App">
+        <div className="App" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <Toaster position="bottom-right" />
         <Navbar />
         <Routes>
@@ -66,6 +67,7 @@ function App() {
           {/* Default redirect */}
           <Route path="/" element={<Navigate to="/login" replace />} />
         </Routes>
+        <Footer />
       </div>
     </Router>
     </QueryClientProvider>

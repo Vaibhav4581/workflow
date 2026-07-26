@@ -1,4 +1,4 @@
-import { ROLES, isRole } from '../utils/roles';
+import { ROLES, isRole, isNoDeptRole } from '../utils/roles';
 // frontend/src/pages/NewSubmission.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import './NewSubmission.css';
@@ -138,6 +138,11 @@ function NewSubmission() {
       }
       
       setUserRole(token.role);
+
+      // Roles that are institution-wide and don't need a department on the form
+      if (isNoDeptRole(token.role)) {
+        setFormStaff(p => ({ ...p, department: '' }));
+      }
     } catch (err) {
       console.error('Invalid token');
       navigate('/login');
@@ -236,6 +241,7 @@ function NewSubmission() {
     try {
       const token = jwtDecode(localStorage.getItem('token'));
       const attachments = await buildAttachments(attachmentsStudent);
+      const finalTo = [formStudent.category ? (getNextReceiver(formStudent.category) || 'FacultyAdvisor') : 'FacultyAdvisor'];
       if (editMode && editFormId) {
         await axios.put('/updateFormRemarksStatus', {
           formId: editFormId, formType: 'student', status: 'awaiting',
@@ -248,7 +254,7 @@ function NewSubmission() {
         toast.success('Form remarks updated and resubmitted successfully!');
       } else {
         await axios.post('/studentFormSubmission', JSON.stringify({
-          date: today, to: formStudent.to, category: formStudent.category,
+          date: today, to: finalTo, category: formStudent.category,
           subject: formStudent.subject, subjectElaboration: formStudent.subjectElaboration,
           others: formStudent.toOthers, department: formStudent.department,
           details: formStudent.details, submittedBy: token.email,
@@ -265,6 +271,7 @@ function NewSubmission() {
     try {
       const token = jwtDecode(localStorage.getItem('token'));
       const attachments = await buildAttachments(attachmentsStaff);
+      const finalTo = [formStaff.category ? (getNextReceiver(formStaff.category) || 'HOD') : 'HOD'];
       if (editMode && editFormId) {
         await axios.put('/updateFormRemarksStatus', {
           formId: editFormId, formType: 'faculty', status: 'awaiting',
@@ -277,7 +284,7 @@ function NewSubmission() {
         toast.success('Form remarks updated and resubmitted successfully!');
       } else {
         await axios.post('/facultyFormSubmission', JSON.stringify({
-          date: today, to: formStaff.to, category: formStaff.category,
+          date: today, to: finalTo, category: formStaff.category,
           subject: formStaff.subject, subjectElaboration: formStaff.subjectElaboration,
           others: formStaff.toOthers, department: formStaff.department,
           details: formStaff.details, submittedBy: token.email, attachments,
@@ -783,12 +790,15 @@ function NewSubmission() {
           onChange={handleChangeStaff} className="long-input" />
       </div>
 
-      <div className="form-row">
-        <label>Department</label>
-        <select name="department" value={formStaff.department}
-          onChange={e => setFormStaff(p => ({ ...p, department: e.target.value }))}
-          className="long-input" required>{deptOptions}</select>
-      </div>
+      {/* Hide department field for roles that are institution-wide */}
+      {!isNoDeptRole(userRole) && (
+        <div className="form-row">
+          <label>Department</label>
+          <select name="department" value={formStaff.department}
+            onChange={e => setFormStaff(p => ({ ...p, department: e.target.value }))}
+            className="long-input" required>{deptOptions}</select>
+        </div>
+      )}
 
       <div className="form-row">
         <label>Details of Submission:</label>

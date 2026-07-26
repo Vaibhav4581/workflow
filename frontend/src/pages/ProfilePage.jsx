@@ -2,6 +2,7 @@ import { jwtDecode } from 'jwt-decode';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { isNoDeptRole } from '../utils/roles';
 import './ProfilePage.css';
 
 const ProfilePage = () => {
@@ -63,7 +64,7 @@ const ProfilePage = () => {
           <div className="profile-value">{role}</div>
 
           {/* ✅ Conditionally render Department */}
-          {!['admin', 'principal', 'manager'].includes(role?.toLowerCase()) && (
+          {!isNoDeptRole(role) && (
             <>
               <div className="profile-label">Department:</div>
               <div className="profile-value">{department}</div>

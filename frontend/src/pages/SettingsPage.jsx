@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
 import { customConfirm } from '../utils/customConfirm';
+import { isNoDeptRole } from '../utils/roles';
 import './SettingsPage.css';
 
 export default function SettingsPage() {
@@ -111,7 +112,7 @@ export default function SettingsPage() {
   };
 
   const displayName = [userInfo.fName, userInfo.lName].filter(Boolean).join(' ') || userInfo.email;
-  const skipDept = ['admin', 'principal', 'manager'].includes(userInfo.role?.toLowerCase());
+  const skipDept = isNoDeptRole(userInfo.role);
 
   const handleRoleSwitchSubmit = async (e) => {
     e?.preventDefault();

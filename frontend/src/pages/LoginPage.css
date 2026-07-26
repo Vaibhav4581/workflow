@@ -48,6 +48,13 @@
   margin: 0;
 }
 
+.login-dept-sub {
+  color: #4f46e5 !important;
+  font-size: 13px !important;
+  font-weight: 600;
+  margin-bottom: 6px !important;
+}
+
 .login-form {
   display: flex;
   flex-direction: column;

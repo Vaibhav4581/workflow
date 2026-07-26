@@ -7,6 +7,7 @@ import DashboardBuilder from './components/admin/DashboardBuilder';
 import AccessControl from './components/admin/AccessControl';
 import BulkUserImport from './components/admin/BulkUserImport';
 import DepartmentManagement from './components/admin/DepartmentManagement';
+import { isNoDeptRole } from './utils/roles';
 
 function AdminPanel() {
   const [section, setSection] = useState('dashboard');
@@ -235,7 +236,7 @@ function AdminPanel() {
 
   // Edit User state and actions
   const [editingEmail, setEditingEmail] = useState(null);
-  const [editValues, setEditValues] = useState({ fName: '', lName: '', role: '', department: '', year: '', div: '' });
+  const [editValues, setEditValues] = useState({ fName: '', lName: '', role: '', department: '', year: '', div: '', password: '' });
 
   const startEditUser = (user) => {
     setEditingEmail(user.email);
@@ -245,13 +246,45 @@ function AdminPanel() {
       role: user.role || 'Student',
       department: user.department || 'CSE',
       year: user.year ?? '',
-      div: user.div || ''
+      div: user.div || '',
+      password: ''
     });
   };
 
   const cancelEditUser = () => {
     setEditingEmail(null);
-    setEditValues({ fName: '', lName: '', role: 'Student', department: 'CSE', year: '', div: '' });
+    setEditValues({ fName: '', lName: '', role: 'Student', department: 'CSE', year: '', div: '', password: '' });
+  };
+
+  // Reset a single user's password to default
+  const handleResetUserPassword = async (email) => {
+    try {
+      await axios.put('/updateUser', { email, updates: { password: 'Sngce@123' } });
+      alert(`Password for ${email} reset to Sngce@123`);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to reset password');
+    }
+  };
+
+  // Reset ALL non-admin users' passwords to Sngce@123
+  const handleResetAllPasswords = async () => {
+    setConfirmDialog({
+      isOpen: true,
+      message: `Are you sure you want to reset ALL user passwords to "Sngce@123"? This cannot be undone.`,
+      onConfirm: async () => {
+        const nonAdmins = users.filter(u => (u.role || '').toLowerCase() !== 'admin');
+        let success = 0;
+        for (const u of nonAdmins) {
+          try {
+            await axios.put('/updateUser', { email: u.email, updates: { password: 'Sngce@123' } });
+            success++;
+          } catch (e) {
+            console.error('Failed to reset password for', u.email);
+          }
+        }
+        alert(`Successfully reset passwords for ${success} of ${nonAdmins.length} users.`);
+      }
+    });
   };
 
   const saveEditUser = async (email) => {
@@ -259,6 +292,10 @@ function AdminPanel() {
       const payload = { email, updates: { ...editValues } };
       // Convert empty year to undefined
       if (payload.updates.year === '') delete payload.updates.year;
+      // Only send password if a new one was entered
+      if (!payload.updates.password || payload.updates.password.trim() === '') {
+        delete payload.updates.password;
+      }
       const res = await axios.put('/updateUser', payload);
       const updated = res.data;
       setUsers(prev => prev.map(u => (u.email === email ? { ...u, ...updated } : u)));
@@ -275,9 +312,8 @@ function AdminPanel() {
     e.preventDefault();
     
     // Validation
-    const noDeptRoles = ['admin', 'principal', 'manager'];
     const roleForCheck = (newUser.role || '').toLowerCase();
-    const isDeptRequired = !noDeptRoles.includes(roleForCheck);
+    const isDeptRequired = !isNoDeptRole(newUser.role);
     const requiresYearDiv = ['student', 'faculty advisor', 'facultyadvisor'].includes(roleForCheck);
     
     if (!newUser.fName || !newUser.lName || !newUser.email || !newUser.password || (isDeptRequired && !newUser.department)) {
@@ -569,7 +605,7 @@ function AdminPanel() {
                           ))}
                         </select>
                       </div>
-                      {(!['admin', 'principal', 'manager'].includes((newUser.role || '').toLowerCase())) && (
+                      {!isNoDeptRole(newUser.role) && (
                       <div>
                         <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '14px' }}>
                           Department *
@@ -840,7 +876,7 @@ function AdminPanel() {
                             ))}
                           </select>
                         </div>
-                        {(!['admin', 'principal', 'manager'].includes((editValues.role || '').toLowerCase())) && (
+                        {!isNoDeptRole(editValues.role) && (
                         <div style={{ flex: 1 }}>
                           <label>Department</label>
                           <select className="settings-input" value={editValues.department} onChange={e => setEditValues(v => ({ ...v, department: e.target.value }))}>
@@ -870,6 +906,30 @@ function AdminPanel() {
                         </div>
                       </div>
                       )}
+
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '13px', color: '#374151' }}>
+                          🔑 New Password <span style={{ fontWeight: '400', color: '#6b7280', fontSize: '12px' }}>(leave blank to keep current)</span>
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            className="settings-input"
+                            value={editValues.password}
+                            onChange={e => setEditValues(v => ({ ...v, password: e.target.value }))}
+                            placeholder="Enter new password"
+                            style={{ flex: 1 }}
+                          />
+                          <button
+                            type="button"
+                            className="admin-btn"
+                            style={{ background: '#f59e0b', color: 'white', whiteSpace: 'nowrap', padding: '6px 12px', fontSize: '0.8rem' }}
+                            onClick={() => setEditValues(v => ({ ...v, password: 'Sngce@123' }))}
+                          >
+                            Use Default
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     
                     <div className="modal-actions" style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
