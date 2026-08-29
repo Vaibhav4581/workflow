@@ -67,7 +67,13 @@ const studentFormSchema = new mongoose.Schema({
             type: String, // e.g., r'submitted', 'forwarded to principal', 'accepted by principal'
         },
         by: {
-            type: String, // could be name, email, or role
+            type: String, // role e.g., 'HOD', 'Principal'
+        },
+        authorName: {
+            type: String,
+        },
+        authorEmail: {
+            type: String,
         },
         timestamp: {
             type: Date,
