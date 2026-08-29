@@ -94,6 +94,7 @@ function NewSubmission() {
   const editFormId       = location.state?.formId     || null;
 
   const [userRole, setUserRole] = useState();
+  const [userDepartment, setUserDepartment] = useState('');
   const [formStudent, setFormStudent] = useState({ ...initialStateStudent });
   const [formStaff,   setFormStaff]   = useState({ ...initialStateStaff });
 
@@ -105,6 +106,7 @@ function NewSubmission() {
   const [attachmentsStaff,   setAttachmentsStaff]   = useState([]);
   const [dynamicCategories,  setDynamicCategories]  = useState([]);
   const [dynamicDepartments, setDynamicDepartments] = useState([]);
+
 
   // ── Fetch dynamic configs ────────────────────────────────────────────────
   useEffect(() => {
@@ -139,6 +141,13 @@ function NewSubmission() {
       }
       
       setUserRole(token.role);
+      const dept = token.department || localStorage.getItem('userDepartment') || '';
+      setUserDepartment(dept);
+
+      if (dept) {
+        setFormStaff(p => ({ ...p, department: dept }));
+        setFormStudent(p => ({ ...p, department: dept }));
+      }
 
       // Roles that are institution-wide and don't need a department on the form
       if (isNoDeptRole(token.role)) {
@@ -408,17 +417,25 @@ function NewSubmission() {
         </div>
       </div>
 
-      <div className="form-row">
-        <label>Others:</label>
-        <input type="text" name="toOthers" value={formStudent.toOthers}
-          onChange={handleChangeStudent} className="long-input" />
-      </div>
 
       <div className="form-row">
         <label>Department</label>
-        <select name="department" value={formStudent.department}
-          onChange={e => setFormStudent(p => ({ ...p, department: e.target.value }))}
-          className="long-input" required>{deptOptions}</select>
+        {userDepartment ? (
+          <>
+            <input 
+              type="text" 
+              value={getDeptLong(userDepartment)} 
+              disabled 
+              className="long-input" 
+              style={{ background: '#f8fafc', color: '#334155', cursor: 'not-allowed' }}
+            />
+            <input type="hidden" name="department" value={formStudent.department || userDepartment} />
+          </>
+        ) : (
+          <select name="department" value={formStudent.department}
+            onChange={e => setFormStudent(p => ({ ...p, department: e.target.value }))}
+            className="long-input" required>{deptOptions}</select>
+        )}
       </div>
 
       <div className="form-row">
@@ -505,19 +522,27 @@ function NewSubmission() {
         </div>
       </div>
 
-      <div className="form-row">
-        <label>Others:</label>
-        <input type="text" name="toOthers" value={formStaff.toOthers}
-          onChange={handleChangeStaff} className="long-input" />
-      </div>
 
       {/* Hide department field for roles that are institution-wide */}
       {!isNoDeptRole(userRole) && (
         <div className="form-row">
           <label>Department</label>
-          <select name="department" value={formStaff.department}
-            onChange={e => setFormStaff(p => ({ ...p, department: e.target.value }))}
-            className="long-input" required>{deptOptions}</select>
+          {userDepartment ? (
+            <>
+              <input 
+                type="text" 
+                value={getDeptLong(userDepartment)} 
+                disabled 
+                className="long-input" 
+                style={{ background: '#f8fafc', color: '#334155', cursor: 'not-allowed' }}
+              />
+              <input type="hidden" name="department" value={formStaff.department || userDepartment} />
+            </>
+          ) : (
+            <select name="department" value={formStaff.department}
+              onChange={e => setFormStaff(p => ({ ...p, department: e.target.value }))}
+              className="long-input" required>{deptOptions}</select>
+          )}
         </div>
       )}
 
