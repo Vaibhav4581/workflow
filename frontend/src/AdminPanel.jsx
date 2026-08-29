@@ -22,6 +22,31 @@ function AdminPanel() {
   // User Filters
   const [userFilters, setUserFilters] = useState({ search: '', role: '', department: '', year: '', div: '' });
 
+  // 3-Year Delete Button Visibility
+  const THREE_YEARS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
+  const [isDeleteVisible, setIsDeleteVisible] = useState(() => {
+    let unlockTime = localStorage.getItem('adminDeleteUnlockTime_v2');
+    if (!unlockTime) {
+      unlockTime = Date.now() + THREE_YEARS_MS;
+      localStorage.setItem('adminDeleteUnlockTime_v2', unlockTime.toString());
+    }
+    return Date.now() >= Number(unlockTime);
+  });
+
+  useEffect(() => {
+    if (isDeleteVisible) return;
+
+    const interval = setInterval(() => {
+      const unlockTime = Number(localStorage.getItem('adminDeleteUnlockTime_v2'));
+      if (unlockTime && Date.now() >= unlockTime) {
+        setIsDeleteVisible(true);
+        clearInterval(interval);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isDeleteVisible]);
+
   useEffect(() => {
     if (section === 'users') {
       const fetchConfigs = async () => {
@@ -124,7 +149,7 @@ function AdminPanel() {
   };
 
   const handleBulkDeleteUsers = async () => {
-    if (selectedUsers.length === 0) return;
+    if (!isDeleteVisible || selectedUsers.length === 0) return;
     setConfirmDialog({
       isOpen: true,
       message: `Are you sure you want to delete ${selectedUsers.length} users?`,
@@ -218,6 +243,7 @@ function AdminPanel() {
 
   // User management actions
   const handleDeleteUser = async (email) => {
+    if (!isDeleteVisible) return;
     setConfirmDialog({
       isOpen: true,
       message: 'Are you sure you want to delete this user?',
@@ -449,7 +475,7 @@ function AdminPanel() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                   <h2>User Management</h2>
-                  {selectedUsers.length > 0 && (
+                  {isDeleteVisible && selectedUsers.length > 0 && (
                     <button 
                       className="admin-btn" 
                       style={{ background: '#ef4444', color: 'white', padding: '6px 12px', fontSize: '0.85rem' }}
@@ -821,7 +847,7 @@ function AdminPanel() {
                       <td>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                           <button className="admin-btn" style={{ width: '80px' }} onClick={() => startEditUser(u)}>Edit</button>
-                          {u.role !== 'Admin' && (
+                          {isDeleteVisible && u.role !== 'Admin' && (
                             <button className="admin-btn admin-btn-danger" style={{ width: '80px' }} onClick={() => handleDeleteUser(u.email)}>Delete</button>
                           )}
                         </div>
