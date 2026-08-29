@@ -321,7 +321,8 @@ function NewSubmission() {
       date: today,
       owner: isStudent ? 'student' : 'staff',
       role: userRole,
-      submittedBy: localStorage.getItem('userEmail') || localStorage.getItem('userName') || '',
+      submittedBy: localStorage.getItem('userEmail') || '',
+      submitterName: localStorage.getItem('userName') || '',
       attachments: attachments
     };
 

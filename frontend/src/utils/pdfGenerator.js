@@ -134,10 +134,16 @@ export const generateOfficialPdf = async (submission) => {
   // Originator
   const originatorRole = submission.owner === 'student' ? 'Student' : (submission.role || (submission.owner === 'staff' ? 'Faculty' : 'Faculty'));
   const originatorDept = submission.department ? getDeptLong(submission.department) : '';
+  const originatorName = submission.submitterName || submission.userName || submission.name || (submission.fName ? `${submission.fName} ${submission.lName || ''}`.trim() : '') || (submission.submittedBy && !submission.submittedBy.includes('@') ? submission.submittedBy : '') || '';
   
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   let originatorLabel = `Originator(${originatorRole})`;
+  if (originatorName) {
+    originatorLabel += ` - ${originatorName}`;
+  } else if (submission.submittedBy) {
+    originatorLabel += ` - ${submission.submittedBy}`;
+  }
   if (originatorDept) {
     originatorLabel += ` - Dept. of ${originatorDept}`;
   }
