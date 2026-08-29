@@ -9,7 +9,6 @@ const statusColors = {
   accepted: '#22c55e',
   approved: '#22c55e',
   rejected: '#ef4444',
-  approved: '#22c55e',
   edit: '#f59e0b'
 };
 

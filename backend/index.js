@@ -1090,7 +1090,7 @@ app.listen(PORT, () => {
 
 
 app.put('/updateFormRemarksStatus', async (req, res) => {
-  const { formId, formType, remarks, status, to, by, category, subject, subjectElaboration, department, details, attachments, others } = req.body;
+  const { formId, formType, remarks, status, to, by, authorName, authorEmail, category, subject, subjectElaboration, department, details, attachments, others } = req.body;
 
   try {
     let model;
@@ -1145,7 +1145,9 @@ app.put('/updateFormRemarksStatus', async (req, res) => {
 
     const historyEntry = {
       action,
-      by: by || 'system', // Default to 'system' if 'by' is not provided
+      by: by || 'system', // e.g. 'HOD', 'Principal'
+      authorName: authorName || '',
+      authorEmail: authorEmail || '',
       timestamp: new Date(),
       remarks: remarks || ''
     };

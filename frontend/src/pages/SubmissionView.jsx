@@ -164,7 +164,10 @@ export default function SubmissionView() {
         formType: backendFormType,
         status: action,
         remarks: actionRemarks || remarks,
-        forwardTo: targetForwardTo || forwardTo || undefined
+        to: targetForwardTo ? (Array.isArray(submission.to) ? [...submission.to, targetForwardTo] : [submission.to, targetForwardTo]) : undefined,
+        by: currentUser?.role || 'system',
+        authorName: localStorage.getItem('userName') || '',
+        authorEmail: localStorage.getItem('userEmail') || '',
       });
       
       // Refresh the submission data
@@ -411,25 +414,46 @@ export default function SubmissionView() {
                     borderRadius: 8,
                     border: '1px solid #e5e7eb'
                   }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{
+                          background: '#4f46e5',
+                          color: '#ffffff',
+                          fontWeight: '700',
+                          fontSize: '0.75rem',
+                          padding: '2px 8px',
+                          borderRadius: 4
+                        }}>
+                          {entry.by || 'Reviewer'}
+                        </span>
+                        {(entry.authorName || entry.authorEmail) && (
+                          <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '0.85rem' }}>
+                            {entry.authorName || entry.authorEmail}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                        {new Date(entry.timestamp).toLocaleString()}
+                      </div>
+                    </div>
                     <div style={{ 
-                      fontWeight: 'bold', 
+                      fontWeight: '600', 
                       color: '#374151',
-                      marginBottom: 4
+                      fontSize: '0.85rem',
+                      marginBottom: entry.remarks ? 6 : 0
                     }}>
                       {entry.action}
                     </div>
-                    <div style={{ 
-                      fontSize: '0.9rem', 
-                      color: '#6b7280',
-                      marginBottom: 8
-                    }}>
-                      By: {entry.by} • {new Date(entry.timestamp).toLocaleString()}
-                    </div>
                     {entry.remarks && (
                       <div style={{ 
-                        color: '#374151',
-                        fontSize: '0.9rem',
-                        fontStyle: 'italic'
+                        background: '#ffffff',
+                        borderLeft: '3px solid #6366f1',
+                        padding: '6px 12px',
+                        borderRadius: '0 4px 4px 0',
+                        color: '#334155',
+                        fontSize: '0.875rem',
+                        fontStyle: 'italic',
+                        marginTop: 4
                       }}>
                         "{entry.remarks}"
                       </div>
@@ -687,29 +711,133 @@ export default function SubmissionView() {
             </div>
           )}
 
-          {/* Remarks Section */}
-          {canPerformActions && (
-            <div style={{ marginBottom: 20 }}>
-              <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem' }}>
-                💬 Remarks
-              </h4>
-              <textarea
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Add your remarks here..."
-                style={{
-                  width: '100%',
-                  minHeight: 80,
-                  padding: 12,
-                  border: '1px solid #d1d5db',
-                  borderRadius: 6,
-                  fontSize: '0.9rem',
-                  resize: 'none',
-                  fontFamily: 'inherit'
-                }}
-              />
-            </div>
-          )}
+          {/* Remarks & Review History Section */}
+          <div style={{ marginBottom: 20 }}>
+            <h4 style={{ margin: '0 0 12px 0', color: '#374151', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>💬</span> Remarks & Review History
+            </h4>
+
+            {/* Past Tagged Remarks */}
+            {submission.history && submission.history.filter(h => h.remarks || h.action).length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                {submission.history
+                  .filter(h => h.remarks || h.action)
+                  .map((item, idx) => {
+                    const roleName = item.by || 'Reviewer';
+                    const actionText = item.action || 'Reviewed';
+                    const isApprove = actionText.toLowerCase().includes('accept') || actionText.toLowerCase().includes('approve');
+                    const isReject = actionText.toLowerCase().includes('reject') || actionText.toLowerCase().includes('not_approved');
+                    const isEdit = actionText.toLowerCase().includes('edit');
+                    const isForward = actionText.toLowerCase().includes('forward');
+                    
+                    let badgeBg = '#e0e7ff';
+                    let badgeColor = '#3730a3';
+                    if (isApprove) { badgeBg = '#dcfce7'; badgeColor = '#166534'; }
+                    else if (isReject) { badgeBg = '#fee2e2'; badgeColor = '#991b1b'; }
+                    else if (isEdit) { badgeBg = '#fef3c7'; badgeColor = '#92400e'; }
+                    else if (isForward) { badgeBg = '#dbeafe'; badgeColor = '#1e40af'; }
+
+                    return (
+                      <div 
+                        key={idx} 
+                        style={{
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 8,
+                          padding: '10px 12px',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {/* Role Tag */}
+                            <span style={{
+                              background: '#4f46e5',
+                              color: '#ffffff',
+                              fontWeight: '700',
+                              fontSize: '0.75rem',
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              letterSpacing: '0.5px'
+                            }}>
+                              {roleName}
+                            </span>
+
+                            {/* Author Name / Email */}
+                            {(item.authorName || item.authorEmail) && (
+                              <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '0.8rem' }}>
+                                {item.authorName || item.authorEmail}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Action Badge */}
+                          <span style={{
+                            background: badgeBg,
+                            color: badgeColor,
+                            fontWeight: '600',
+                            fontSize: '0.72rem',
+                            padding: '2px 6px',
+                            borderRadius: 4
+                          }}>
+                            {actionText}
+                          </span>
+                        </div>
+
+                        {/* Timestamp */}
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: item.remarks ? 6 : 0 }}>
+                          🕒 {item.timestamp ? new Date(item.timestamp).toLocaleString() : ''}
+                        </div>
+
+                        {/* Remark Content */}
+                        {item.remarks && (
+                          <div style={{
+                            background: '#ffffff',
+                            borderLeft: '3px solid #6366f1',
+                            padding: '6px 10px',
+                            borderRadius: '0 4px 4px 0',
+                            color: '#334155',
+                            fontStyle: 'italic',
+                            marginTop: 4
+                          }}>
+                            "{item.remarks}"
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic', padding: '8px 10px', background: '#f8fafc', borderRadius: 6, marginBottom: 12 }}>
+                No prior remarks recorded.
+              </div>
+            )}
+
+            {/* Add New Remark for active reviewers */}
+            {canPerformActions && (
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#4b5563', marginBottom: 4 }}>
+                  ➕ Add your remarks for this action:
+                </label>
+                <textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Type remarks here before forwarding or acting..."
+                  style={{
+                    width: '100%',
+                    minHeight: 70,
+                    padding: 10,
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    fontSize: '0.875rem',
+                    resize: 'none',
+                    fontFamily: 'inherit',
+                    background: '#ffffff'
+                  }}
+                />
+              </div>
+            )}
+          </div>
 
           {canPerformActions && (
             <div style={{ marginBottom: 20 }}>
