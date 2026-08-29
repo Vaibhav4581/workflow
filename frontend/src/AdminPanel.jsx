@@ -22,30 +22,14 @@ function AdminPanel() {
   // User Filters
   const [userFilters, setUserFilters] = useState({ search: '', role: '', department: '', year: '', div: '' });
 
-  // 3-Year Delete Button Visibility
-  const THREE_YEARS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
-  const [isDeleteVisible, setIsDeleteVisible] = useState(() => {
-    let unlockTime = localStorage.getItem('adminDeleteUnlockTime_v2');
-    if (!unlockTime) {
-      unlockTime = Date.now() + THREE_YEARS_MS;
-      localStorage.setItem('adminDeleteUnlockTime_v2', unlockTime.toString());
-    }
-    return Date.now() >= Number(unlockTime);
-  });
-
-  useEffect(() => {
-    if (isDeleteVisible) return;
-
-    const interval = setInterval(() => {
-      const unlockTime = Number(localStorage.getItem('adminDeleteUnlockTime_v2'));
-      if (unlockTime && Date.now() >= unlockTime) {
-        setIsDeleteVisible(true);
-        clearInterval(interval);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isDeleteVisible]);
+  // 3-Year Retention Helper for Forms
+  const isFormOlderThan3Years = (form) => {
+    if (!form) return false;
+    const formDate = new Date(form.createdAt || form.date);
+    if (isNaN(formDate.getTime())) return false;
+    const THREE_YEARS_MS = 3 * 365 * 24 * 60 * 60 * 1000;
+    return (Date.now() - formDate.getTime()) >= THREE_YEARS_MS;
+  };
 
   useEffect(() => {
     if (section === 'users') {
@@ -149,7 +133,7 @@ function AdminPanel() {
   };
 
   const handleBulkDeleteUsers = async () => {
-    if (!isDeleteVisible || selectedUsers.length === 0) return;
+    if (selectedUsers.length === 0) return;
     setConfirmDialog({
       isOpen: true,
       message: `Are you sure you want to delete ${selectedUsers.length} users?`,
@@ -173,7 +157,7 @@ function AdminPanel() {
   // Forms Bulk Handlers
   const handleSelectAllForms = (e) => {
     if (e.target.checked) {
-      setSelectedForms(allForms.map(f => ({ id: f._id, type: f.type })));
+      setSelectedForms(allForms.filter(isFormOlderThan3Years).map(f => ({ id: f._id, type: f.type })));
     } else {
       setSelectedForms([]);
     }
@@ -243,7 +227,6 @@ function AdminPanel() {
 
   // User management actions
   const handleDeleteUser = async (email) => {
-    if (!isDeleteVisible) return;
     setConfirmDialog({
       isOpen: true,
       message: 'Are you sure you want to delete this user?',
@@ -390,6 +373,11 @@ function AdminPanel() {
 
   // Form management actions
   const handleDeleteForm = async (formId, formType) => {
+    const targetForm = allForms.find(f => f._id === formId);
+    if (targetForm && !isFormOlderThan3Years(targetForm)) {
+      alert('Forms can only be deleted after 3 years from the date of submission.');
+      return;
+    }
     setConfirmDialog({
       isOpen: true,
       message: 'Are you sure you want to delete this form? This action cannot be undone.',
@@ -475,7 +463,7 @@ function AdminPanel() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                   <h2>User Management</h2>
-                  {isDeleteVisible && selectedUsers.length > 0 && (
+                  {selectedUsers.length > 0 && (
                     <button 
                       className="admin-btn" 
                       style={{ background: '#ef4444', color: 'white', padding: '6px 12px', fontSize: '0.85rem' }}
@@ -847,7 +835,7 @@ function AdminPanel() {
                       <td>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                           <button className="admin-btn" style={{ width: '80px' }} onClick={() => startEditUser(u)}>Edit</button>
-                          {isDeleteVisible && u.role !== 'Admin' && (
+                          {u.role !== 'Admin' && (
                             <button className="admin-btn admin-btn-danger" style={{ width: '80px' }} onClick={() => handleDeleteUser(u.email)}>Delete</button>
                           )}
                         </div>
@@ -1012,26 +1000,28 @@ function AdminPanel() {
                         Delete Selected ({selectedForms.length})
                       </button>
                     )}
-                    {allForms.length > 0 && (
+                    {allForms.some(isFormOlderThan3Years) && (
                       <button 
                         className="admin-btn" 
                         style={{ background: '#b91c1c', color: 'white', padding: '6px 12px', fontSize: '0.85rem', marginLeft: 'auto' }}
                         onClick={handleClearAllHistory}
                       >
-                        Clear All History
+                        Clear Archived History (3+ Years)
                       </button>
                     )}
                   </div>
                   <div style={{ width: "100%", overflowX: "auto", borderRadius: "8px" }}><table className="admin-table">
                     <thead>
                       <tr>
-                        <th style={{ width: '40px' }}>
-                          <input 
-                            type="checkbox" 
-                            onChange={handleSelectAllForms}
-                            checked={allForms.length > 0 && selectedForms.length === allForms.length}
-                          />
-                        </th>
+                        {allForms.some(isFormOlderThan3Years) && (
+                          <th style={{ width: '40px' }}>
+                            <input 
+                              type="checkbox" 
+                              onChange={handleSelectAllForms}
+                              checked={allForms.filter(isFormOlderThan3Years).length > 0 && selectedForms.length === allForms.filter(isFormOlderThan3Years).length}
+                            />
+                          </th>
+                        )}
                         <th>Form No</th>
                         <th>Type</th>
                         <th>Category</th>
@@ -1040,19 +1030,23 @@ function AdminPanel() {
                         <th>Status</th>
                         <th>Submitted By</th>
                         <th>Date</th>
-                        <th>Actions</th>
+                        {allForms.some(isFormOlderThan3Years) && <th>Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {allForms.map(form => (
                         <tr key={form._id}>
-                          <td>
-                            <input 
-                              type="checkbox" 
-                              checked={selectedForms.some(f => f.id === form._id)}
-                              onChange={() => handleSelectForm(form._id, form.type)}
-                            />
-                          </td>
+                          {allForms.some(isFormOlderThan3Years) && (
+                            <td>
+                              {isFormOlderThan3Years(form) && (
+                                <input 
+                                  type="checkbox" 
+                                  checked={selectedForms.some(f => f.id === form._id)}
+                                  onChange={() => handleSelectForm(form._id, form.type)}
+                                />
+                              )}
+                            </td>
+                          )}
                           <td>#{form.formNo}</td>
                           <td>
                             <span style={{ 
@@ -1087,14 +1081,18 @@ function AdminPanel() {
                           <td>
                             {new Date(form.createdAt).toLocaleDateString()}
                           </td>
-                          <td>
-                            <button 
-                              className="admin-btn"
-                              onClick={() => handleDeleteForm(form._id, form.type)}
-                            >
-                              Delete
-                            </button>
-                          </td>
+                          {allForms.some(isFormOlderThan3Years) && (
+                            <td>
+                              {isFormOlderThan3Years(form) && (
+                                <button 
+                                  className="admin-btn"
+                                  onClick={() => handleDeleteForm(form._id, form.type)}
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
