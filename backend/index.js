@@ -174,22 +174,36 @@ app.get('/getFFormsByUser', async (req, res) => {
 });
 // Get single Student Form by ID
 app.get('/getSFormById/:id', async (req, res) => {
-  console.log(req.params.id)
+  console.log(req.params.id);
   try {
     const form = await sFormModel.findById(req.params.id);
     if (!form) return res.status(404).send('Not found');
-    res.send({ ...form.toObject(), owner: 'student' });
+    const formObj = form.toObject();
+    if (form.submittedBy) {
+      const user = await logmodel.findOne({ email: form.submittedBy }).lean();
+      if (user) {
+        formObj.submitterName = `${user.fName || ''} ${user.lName || ''}`.trim() || user.name || '';
+      }
+    }
+    res.send({ ...formObj, owner: 'student' });
   } catch (error) {
     res.status(500).send(error);
   }
 });
 // Get single Faculty Form by ID
 app.get('/getFFormById/:id', async (req, res) => {
-  console.log(req.params.id)
+  console.log(req.params.id);
   try {
     const form = await fFormModel.findById(req.params.id);
     if (!form) return res.status(404).send('Not found');
-    res.send({ ...form.toObject(), owner: 'faculty' });
+    const formObj = form.toObject();
+    if (form.submittedBy) {
+      const user = await logmodel.findOne({ email: form.submittedBy }).lean();
+      if (user) {
+        formObj.submitterName = `${user.fName || ''} ${user.lName || ''}`.trim() || user.name || '';
+      }
+    }
+    res.send({ ...formObj, owner: 'faculty' });
   } catch (error) {
     res.status(500).send(error);
   }
