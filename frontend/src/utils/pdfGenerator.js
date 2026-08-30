@@ -235,9 +235,17 @@ export const generateOfficialPdf = async (submission, options = {}) => {
     }
 
     if (lastAction) {
+      // 1. Date at top-right of the box (in line with authority title)
+      if (lastAction.timestamp) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(90, 90, 90);
+        doc.text(`Date: ${new Date(lastAction.timestamp).toLocaleDateString('en-GB')}`, R - 35, boxY + 5);
+      }
+
       let actionY = boxY + 10;
 
-      // Status Tag & Reviewer Identity
+      // 2. Status Tag & Reviewer Identity (Cleanly below the date / header row)
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(20, 90, 40);
@@ -245,17 +253,16 @@ export const generateOfficialPdf = async (submission, options = {}) => {
       const reviewerName = lastAction.authorName 
         ? ` (${lastAction.authorName})` 
         : (lastAction.authorEmail ? ` (${lastAction.authorEmail})` : '');
-      doc.text(`Action: ${actionText}${reviewerName}`, L + 22, actionY);
+      const fullActionText = `Action: ${actionText}${reviewerName}`;
+      const actionLines = doc.splitTextToSize(fullActionText, W - 28);
+      actionLines.slice(0, 2).forEach(al => {
+        doc.text(al, L + 22, actionY);
+        actionY += 4;
+      });
 
-      if (lastAction.timestamp) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(90, 90, 90);
-        doc.text(`Date: ${new Date(lastAction.timestamp).toLocaleDateString('en-GB')}`, R - 40, actionY);
-      }
-
+      // 3. Remarks (Cleanly below the action line)
       if (lastAction.remarks) {
-        actionY += 4.5;
+        actionY += 1;
         doc.setFont('helvetica', 'italic');
         doc.setFontSize(8);
         doc.setTextColor(40, 40, 40);
