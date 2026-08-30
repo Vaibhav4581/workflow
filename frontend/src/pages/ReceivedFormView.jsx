@@ -65,11 +65,34 @@ export default function ReceivedFormView() {
   const letterRef = useRef(null);
 
   useEffect(() => {
-    const token = jwtDecode(localStorage.getItem('token'));
-    if (token){
-      setUserRole(token.role);
+    let currentRole = '';
+    const tokenStr = localStorage.getItem('token');
+    if (tokenStr) {
+      try {
+        const token = jwtDecode(tokenStr);
+        currentRole = token.role || '';
+        setUserRole(currentRole);
+      } catch (err) {
+        console.error('Invalid token', err);
+      }
     }
     
+    const loadRoleRemarks = (formData, role) => {
+      const roleLower = (role || '').toLowerCase();
+      const draftKey = `draft_remarks_${id}_${roleLower}`;
+      const savedDraft = localStorage.getItem(draftKey);
+      const myHistory = formData.history?.filter(h => h.by && h.by.toLowerCase() === roleLower);
+      const lastMyAction = myHistory && myHistory.length > 0 ? myHistory[myHistory.length - 1] : null;
+
+      if (savedDraft !== null && savedDraft !== undefined) {
+        setRemarks(savedDraft);
+      } else if (lastMyAction && lastMyAction.remarks) {
+        setRemarks(lastMyAction.remarks);
+      } else {
+        setRemarks('');
+      }
+    };
+
     // Try both student and faculty endpoints
     const fetchForm = async () => {
       setLoading(true);
@@ -78,14 +101,14 @@ export default function ReceivedFormView() {
         let res = await axios.get(`/getSFormById/${id}`);
         const formData = res.data;
         setForm(formData);
-        setRemarks(formData.remarks || '');
+        loadRoleRemarks(formData, currentRole);
         checkHodAcceptance(formData.category);
       } catch (err1) {
         try {
           let res = await axios.get(`/getFFormById/${id}`);
           const formData = res.data;
           setForm(formData);
-          setRemarks(formData.remarks || '');
+          loadRoleRemarks(formData, currentRole);
           checkHodAcceptance(formData.category);
         } catch (err2) {
           setError('Submission not found or failed to load.');
@@ -109,6 +132,15 @@ export default function ReceivedFormView() {
 
     fetchForm();
   }, [id]);
+
+  const handleRemarksChange = (e) => {
+    const val = e.target.value;
+    setRemarks(val);
+    const roleLower = (userRole || '').toLowerCase();
+    if (id && roleLower) {
+      localStorage.setItem(`draft_remarks_${id}_${roleLower}`, val);
+    }
+  };
 
   const handleAction = async (action, overrideForwardTo) => {
     if (!form) {
@@ -138,6 +170,12 @@ export default function ReceivedFormView() {
         authorName: localStorage.getItem('userName') || '',
         authorEmail: localStorage.getItem('userEmail') || '',
       });
+
+      // Clear draft since it is successfully submitted
+      const roleLower = (userRole || '').toLowerCase();
+      if (id && roleLower) {
+        localStorage.removeItem(`draft_remarks_${id}_${roleLower}`);
+      }
 
       // 2. Use the returned data to update your state
       // This ensures your local state is a perfect match for the database
@@ -189,7 +227,12 @@ export default function ReceivedFormView() {
   const handleDownloadPdf = async () => {
     setDownloading(true);
     try {
-      await generateOfficialPdf(form);
+      await generateOfficialPdf(form, {
+        userRole,
+        liveRemarks: remarks,
+        userName: localStorage.getItem('userName') || '',
+        userEmail: localStorage.getItem('userEmail') || '',
+      });
     } catch (e) {
       console.error(e);
       toast.error('Failed to generate PDF');
@@ -737,7 +780,7 @@ export default function ReceivedFormView() {
                       </label>
                       <textarea
                         value={remarks}
-                        onChange={e => setRemarks(e.target.value)}
+                        onChange={handleRemarksChange}
                         placeholder="Type remarks here before forwarding or acting..."
                         style={{
                           width: '100%',

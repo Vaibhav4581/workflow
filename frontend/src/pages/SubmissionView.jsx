@@ -261,8 +261,12 @@ export default function SubmissionView() {
 
   const handleDownloadPdf = async () => {
     try {
-      await generateOfficialPdf(submission);
-
+      await generateOfficialPdf(submission, {
+        userRole: currentUser?.role,
+        liveRemarks: remarks,
+        userName: localStorage.getItem('userName') || '',
+        userEmail: localStorage.getItem('userEmail') || '',
+      });
     } catch (error) {
       console.error('PDF Generation Error:', error);
       toast.error('Failed to generate PDF');

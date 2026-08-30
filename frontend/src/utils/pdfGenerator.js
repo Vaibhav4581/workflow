@@ -54,7 +54,7 @@ export const getDeptLong = (short) => {
   return map[short?.toLowerCase()] || short;
 };
 
-export const generateOfficialPdf = async (submission) => {
+export const generateOfficialPdf = async (submission, options = {}) => {
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageW = 210;
   const pageH = 297;
@@ -89,44 +89,54 @@ export const generateOfficialPdf = async (submission) => {
     doc.setFont('helvetica', 'normal');
     doc.text(`/${currentYear}`, refBoxX + 10 + (formNumber.length * 2.2), refBoxY + 5.5);
   } else {
-    doc.text(`        /${currentYear}`, refBoxX + 10, refBoxY + 5.5);
+    doc.text(`/${currentYear}`, refBoxX + 16, refBoxY + 5.5);
   }
 
   doc.text(`Date:`, refBoxX + 2.5, refBoxY + 11);
   if (dateValue) {
     doc.setFont('helvetica', 'bold');
-    doc.text(dateValue, refBoxX + 11, refBoxY + 11);
+    doc.text(dateValue, refBoxX + 12, refBoxY + 11);
     doc.setFont('helvetica', 'normal');
   }
 
-  // 2. Centered Title: SUBMISSION (underlined)
-  let y = 18;
+  // 2. Letter Title: "SUBMISSION"
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(20, 20, 20);
-  const titleText = 'SUBMISSION';
-  doc.text(titleText, pageW / 2, y, { align: 'center' });
-  const titleW = doc.getTextWidth(titleText);
-  doc.setLineWidth(0.4);
-  doc.line(pageW / 2 - titleW / 2, y + 1.2, pageW / 2 + titleW / 2, y + 1.2);
+  doc.text('SUBMISSION', pageW / 2, 22, { align: 'center' });
 
-  // 3. Header Text Section
-  y = 34;
+  // 3. Metadata Table (Header info)
+  let y = 32;
 
-  // "Seeking Approval for the following-Reg."
+  const categoryText = submission.category || '';
+  const subjectText = submission.subject || '';
+  const detailsText = submission.details || '';
+
+  // Category
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.setTextColor(30, 30, 30);
-  doc.text('Seeking Approval for the following-Reg.', L, y);
-  y += 5.5;
+  doc.text('Category', L, y);
+  doc.setFont('helvetica', 'normal');
+  const catLines = doc.splitTextToSize(`: ${categoryText}`, W - 32);
+  doc.text(catLines, L + 28, y);
+  y += Math.max(6, catLines.length * 4.5);
 
-  // Category / Type line
-  const categoryText = submission.category || submission.subject || 'Type:1.SubmissionofAcademicMatters/Co-curricularandExtracurricular activities (with Financial Impact)';
+  // Subject
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  const typeLines = doc.splitTextToSize(categoryText.startsWith('Type:') ? `${categoryText}:` : `Type: ${categoryText}:`, W);
-  typeLines.forEach(line => {
-    doc.text(line, L, y);
+  doc.text('Subject', L, y);
+  doc.setFont('helvetica', 'normal');
+  const subLines = doc.splitTextToSize(`: ${subjectText}`, W - 32);
+  doc.text(subLines, L + 28, y);
+  y += Math.max(6, subLines.length * 4.5);
+
+  // Details
+  doc.setFont('helvetica', 'bold');
+  doc.text('Details', L, y);
+  doc.setFont('helvetica', 'normal');
+  const detailLines = doc.splitTextToSize(`: ${detailsText}`, W - 32);
+  const maxDetailLines = detailLines.slice(0, 4);
+  maxDetailLines.forEach((line) => {
+    doc.text(line, L + 28, y);
     y += 4.5;
   });
   y += 2;
@@ -196,8 +206,35 @@ export const generateOfficialPdf = async (submission) => {
       return byLower === roleLower || byLower === dispLower || byLower.includes(roleLower) || roleLower.includes(byLower);
     });
 
-    if (matchingHistory && matchingHistory.length > 0) {
-      const lastAction = matchingHistory[matchingHistory.length - 1];
+    let lastAction = matchingHistory && matchingHistory.length > 0 ? { ...matchingHistory[matchingHistory.length - 1] } : null;
+
+    // Overlay live draft remarks if current reviewer matches this box
+    const currentRole = (options.userRole || submission.currentUserRole || '').toLowerCase();
+    const liveRemarks = options.liveRemarks !== undefined ? options.liveRemarks : submission.currentLiveRemarks;
+    const roleKeyLower = roleKey.toLowerCase();
+    const roleDispLower = roleDisplay.toLowerCase();
+    const isCurrentRoleMatch = currentRole && (
+      currentRole === roleKeyLower ||
+      currentRole === roleDispLower ||
+      currentRole.includes(roleKeyLower) ||
+      roleKeyLower.includes(currentRole)
+    );
+
+    if (isCurrentRoleMatch && liveRemarks && liveRemarks.trim()) {
+      if (!lastAction) {
+        lastAction = {
+          action: 'Reviewed / Endorsed',
+          authorName: options.userName || submission.currentUserName || localStorage.getItem('userName') || '',
+          authorEmail: options.userEmail || submission.currentUserEmail || localStorage.getItem('userEmail') || '',
+          timestamp: new Date(),
+          remarks: liveRemarks.trim()
+        };
+      } else {
+        lastAction.remarks = liveRemarks.trim();
+      }
+    }
+
+    if (lastAction) {
       let actionY = boxY + 10;
 
       // Status Tag & Reviewer Identity
