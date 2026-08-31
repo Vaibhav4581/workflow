@@ -42,15 +42,25 @@ export default function Archive() {
     fetchArchivedForms();
   }, []);
 
+  const isPending = (form) => {
+    const s = (form.status || '').toLowerCase();
+    return s !== 'accepted' && s !== 'declined';
+  };
+
   const filteredForms = archivedForms.filter(form => {
-    const matchesCategory = categoryFilter === 'all' || form.category === categoryFilter;
+    const s = (form.status || '').toLowerCase();
+    const matchesStatus =
+      categoryFilter === 'all' ||
+      (categoryFilter === 'accepted' && s === 'accepted') ||
+      (categoryFilter === 'declined' && s === 'declined') ||
+      (categoryFilter === 'pending' && isPending(form));
     const matchesSearch = searchTerm === '' || 
       form.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       form.submittedBy?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       form.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       form.formNo?.toString().includes(searchTerm);
     
-    return matchesCategory && matchesSearch;
+    return matchesStatus && matchesSearch;
   });
 
   const handleViewForm = (form) => {
@@ -73,25 +83,23 @@ export default function Archive() {
         />
 
 
-        {userRole?.toLowerCase() !== 'student' && (
-          <div className="category-filter">
-            <h4>Form Category:</h4>
+        <div className="category-filter">
+            <h4>Form Status:</h4>
             <div className="category-buttons">
               <button className={`category-btn ${categoryFilter === 'all' ? 'active' : ''}`} onClick={() => setCategoryFilter('all')}>
                 All ({archivedForms.length})
               </button>
-              <button className={`category-btn ${categoryFilter === 'submitted' ? 'active' : ''}`} onClick={() => setCategoryFilter('submitted')}>
-                Submitted ({archivedForms.filter(f => f.category === 'submitted').length})
+              <button className={`category-btn ${categoryFilter === 'accepted' ? 'active' : ''}`} onClick={() => setCategoryFilter('accepted')}>
+                Accepted ({archivedForms.filter(f => (f.status || '').toLowerCase() === 'accepted').length})
               </button>
-              <button className={`category-btn ${categoryFilter === 'received' ? 'active' : ''}`} onClick={() => setCategoryFilter('received')}>
-                Received ({archivedForms.filter(f => f.category === 'received').length})
+              <button className={`category-btn ${categoryFilter === 'declined' ? 'active' : ''}`} onClick={() => setCategoryFilter('declined')}>
+                Declined ({archivedForms.filter(f => (f.status || '').toLowerCase() === 'declined').length})
               </button>
-              <button className={`category-btn ${categoryFilter === 'forwarded' ? 'active' : ''}`} onClick={() => setCategoryFilter('forwarded')}>
-                Forwarded ({archivedForms.filter(f => f.category === 'forwarded').length})
+              <button className={`category-btn ${categoryFilter === 'pending' ? 'active' : ''}`} onClick={() => setCategoryFilter('pending')}>
+                Pending ({archivedForms.filter(isPending).length})
               </button>
             </div>
           </div>
-        )}
       </div>
 
       <div className="archive-content">

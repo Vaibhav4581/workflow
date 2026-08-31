@@ -1146,7 +1146,7 @@ app.put('/updateFormRemarksStatus', async (req, res) => {
       const prev = to[to.length - 2];
       action = `${prev.toLowerCase()} forwarded to ${last.toLowerCase()}`;
     } else if (status) {
-      action = `${formType} status changed to ${status}`;
+      action = `application status changed to ${status}`;
     } else if (remarks) {
       action = `Remarks updated`;
     }
