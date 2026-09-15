@@ -1,0 +1,27 @@
+.app-footer {
+  width: 100%;
+  padding: 16px 24px;
+  background: transparent;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  margin-top: auto;
+  text-align: center;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.footer-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.footer-divider {
+  color: #9ca3af;
+}
+
+.footer-dept {
+  font-weight: 500;
+  color: #4b5563;
+}

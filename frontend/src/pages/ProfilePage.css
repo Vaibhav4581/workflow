@@ -1,0 +1,131 @@
+.profile-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #e0e7ff 0%, #f8fafc 100%);
+  padding: 2rem;
+}
+
+.profile-card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 6px 32px rgba(0,0,0,0.12);
+  padding: 2.5rem 3.5rem;
+  min-width: 320px;
+  max-width: 90vw;
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+  font-size: 1.1rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+  animation: fadeInCard 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.profile-card:hover {
+  transform: translateY(-6px) scale(1.025);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+}
+
+@keyframes fadeInCard {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.profile-details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.7rem 1.5rem;
+  width: 100%;
+  max-width: 350px;
+  margin-top: 0.5rem;
+}
+
+.profile-label {
+  color: #6366f1;
+  font-weight: 600;
+  text-align: right;
+  padding-right: 0.5rem;
+}
+
+.profile-value {
+  color: #374151;
+  text-align: left;
+  word-break: break-all;
+}
+
+.profile-details div:hover .profile-label,
+.profile-details div:hover .profile-value {
+  color: #6366f1;
+}
+
+.profile-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 40%, #a5b4fc 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 2.5rem;
+  font-weight: bold;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 12px rgba(99,102,241,0.15);
+  user-select: none;
+  transition: box-shadow 0.2s;
+}
+
+.profile-avatar:hover {
+  box-shadow: 0 4px 24px rgba(99,102,241,0.25);
+}
+
+.profile-card p {
+  margin: 0.2rem 0;
+  font-size: 1.08rem;
+  color: #374151;
+  letter-spacing: 0.01em;
+  transition: color 0.2s;
+}
+
+.profile-card p strong {
+  color: #6366f1;
+  font-weight: 600;
+}
+
+.profile-card p:hover {
+  color: #6366f1;
+}
+
+.profile-card h2, .profile-container h2 {
+  margin-bottom: 0.5rem;
+  color: #3730a3;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(99,102,241,0.08);
+}
+
+@media (max-width: 500px) {
+  .profile-card {
+    padding: 1rem;
+    min-width: unset;
+  }
+  .profile-avatar {
+    width: 60px;
+    height: 60px;
+    font-size: 1.6rem;
+  }
+  .profile-card h2, .profile-container h2 {
+    font-size: 1.3rem;
+  }
+  .profile-details {
+    max-width: 100%;
+    font-size: 0.98rem;
+  }
+} 

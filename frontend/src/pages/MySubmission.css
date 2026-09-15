@@ -1,0 +1,284 @@
+/* frontend/src/pages/MySubmission.css */
+.my-submission-container {
+  max-width: 800px;
+  margin: 40px auto;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px #eee;
+  padding: 32px;
+}
+
+.my-submission-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.my-submission-header h2 {
+  margin: 0;
+  color: #333;
+  font-size: 28px;
+}
+
+.my-submission-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 40px;
+}
+
+.my-submission-table th,
+.my-submission-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.my-submission-table th {
+  background: #f8f9fa;
+  font-weight: 600;
+  color: #495057;
+}
+
+.my-submission-table tr:hover {
+  background: #f8f9fa;
+}
+
+.view-print-btn {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s ease;
+}
+
+.view-print-btn:hover {
+  background: #5a6fd8;
+}
+
+.received-messages-section {
+  margin-top: 40px;
+  padding-top: 40px;
+  border-top: 1px solid #eee;
+}
+
+.received-messages-section h3 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 24px;
+}
+
+.message-card {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid #e9ecef;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.message-subject {
+  font-weight: 600;
+  color: #333;
+  font-size: 18px;
+}
+
+.message-date {
+  color: #666;
+  font-size: 14px;
+}
+
+.message-content {
+  margin-bottom: 15px;
+  line-height: 1.6;
+  color: #555;
+}
+
+.remarks-section {
+  margin-top: 15px;
+}
+
+.remarks-section h4 {
+  margin: 0 0 10px 0;
+  color: #333;
+  font-size: 16px;
+}
+
+.remarks-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 10px;
+  resize: none;
+  min-height: 60px;
+}
+
+.remarks-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.save-btn {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s ease;
+}
+
+.save-btn:hover {
+  background: #218838;
+}
+
+.loading {
+  padding: 40px;
+  text-align: center;
+  color: #666;
+  font-size: 18px;
+}
+
+.error {
+  padding: 40px;
+  text-align: center;
+  color: #dc3545;
+  font-size: 18px;
+}
+
+.no-data {
+  padding: 40px;
+  text-align: center;
+  color: #666;
+  font-size: 16px;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .my-submission-container {
+    margin: 30px auto;
+    padding: 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  .my-submission-container {
+    margin: 20px auto;
+    padding: 20px;
+    border-radius: 8px;
+  }
+  
+  .my-submission-header h2 {
+    font-size: 24px;
+  }
+  
+  .my-submission-table {
+    font-size: 14px;
+  }
+  
+  .my-submission-table th,
+  .my-submission-table td {
+    padding: 8px 6px;
+  }
+  
+  .message-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .message-subject {
+    font-size: 16px;
+  }
+  
+  .received-messages-section h3 {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 600px) {
+  .my-submission-container {
+    margin: 15px;
+    padding: 15px;
+    border-radius: 6px;
+  }
+  
+  .my-submission-header h2 {
+    font-size: 20px;
+  }
+  
+  /* Make table scrollable horizontally on small screens */
+  .my-submission-table {
+    overflow-x: auto;
+    display: block;
+    white-space: nowrap;
+  }
+  
+  .my-submission-table table {
+    min-width: 500px;
+  }
+  
+  .my-submission-table th,
+  .my-submission-table td {
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+  
+  .view-print-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  
+  .message-card {
+    padding: 15px;
+  }
+  
+  .remarks-input {
+    font-size: 14px;
+    padding: 6px 10px;
+  }
+  
+  .save-btn {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .my-submission-container {
+    margin: 10px;
+    padding: 12px;
+  }
+  
+  .my-submission-header h2 {
+    font-size: 18px;
+  }
+  
+  .my-submission-table th,
+  .my-submission-table td {
+    padding: 4px 2px;
+    font-size: 11px;
+  }
+  
+  .message-subject {
+    font-size: 14px;
+  }
+  
+  .message-content {
+    font-size: 13px;
+  }
+  
+  .received-messages-section h3 {
+    font-size: 18px;
+  }
+} 

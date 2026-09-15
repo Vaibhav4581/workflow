@@ -1,0 +1,141 @@
+.welcome-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #090909;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.welcome-content {
+  position: relative;
+  text-align: center;
+  z-index: 2;
+}
+
+.animated-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.gradient-circle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.5;
+  animation: float 8s ease-in-out infinite;
+}
+
+.circle1 {
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(45deg, #FF3366, #FF6B6B);
+  top: -150px;
+  left: -150px;
+  animation-delay: 0s;
+}
+
+.circle2 {
+  width: 400px;
+  height: 400px;
+  background: linear-gradient(45deg, #4C6EF5, #7950F2);
+  top: 50%;
+  right: -200px;
+  animation-delay: -2s;
+}
+
+.circle3 {
+  width: 350px;
+  height: 350px;
+  background: linear-gradient(45deg, #51CF66, #37B24D);
+  bottom: -175px;
+  left: 30%;
+  animation-delay: -4s;
+}
+
+.text-content {
+  position: relative;
+  z-index: 2;
+  animation: fadeInUp 0.8s ease-out forwards;
+}
+
+.text-content h1 {
+  color: #ffffff;
+  margin: 0;
+  font-size: 2.5rem;
+  font-weight: 300;
+  letter-spacing: 2px;
+  opacity: 0;
+  animation: fadeInUp 0.8s ease-out forwards 0.2s;
+}
+
+.text-content h2 {
+  margin: 10px 0;
+  font-size: 4rem;
+  font-weight: 700;
+  opacity: 0;
+  animation: fadeInUp 0.8s ease-out forwards 0.4s;
+}
+
+.gradient-text {
+  background: linear-gradient(45deg, #FF3366, #4C6EF5, #51CF66);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-size: 200% auto;
+  animation: gradientText 4s linear infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-20px) scale(1.05);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gradientText {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.welcome-overlay {
+  animation: fadeOut 0.5s ease-in-out forwards 1.5s;
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
