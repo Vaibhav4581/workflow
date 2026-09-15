@@ -4,3 +4,4 @@ backend/.env.save
 frontend/.env
 *.log
 node_modules/
+SNGCE_Workflow_Complete_Project.zip
