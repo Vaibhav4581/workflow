@@ -32,6 +32,12 @@ export default function SettingsPage() {
   const [roleForm, setRoleForm] = useState({ year: '', div: '' });
   const [roleLoading, setRoleLoading] = useState(false);
 
+  // --- Username (TEMPORARY feature) ---
+  const [username, setUsername] = useState('');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [usernameMsg, setUsernameMsg] = useState(null);
+  const [usernameLoading, setUsernameLoading] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) { navigate('/login'); return; }
@@ -46,6 +52,16 @@ export default function SettingsPage() {
         year: decoded.year || '',
         div: decoded.div || ''
       });
+      // Fetch the current username from the server (async IIFE to allow await)
+      (async () => {
+        try {
+          const res = await axios.get(`/api/user/profile/${encodeURIComponent(decoded.email)}`);
+          setUsername(res.data.username || '');
+          setUsernameInput(res.data.username || '');
+        } catch (e) {
+          // ignore — username just stays empty
+        }
+      })();
     } catch {
       navigate('/login');
     }
@@ -133,6 +149,24 @@ export default function SettingsPage() {
     }
   };
 
+  const handleUsernameSave = async (e) => {
+    e.preventDefault();
+    setUsernameMsg(null);
+    setUsernameLoading(true);
+    try {
+      const res = await axios.put('/updateUsername', {
+        email: userInfo.email,
+        username: usernameInput.trim()
+      });
+      setUsername(res.data.username || '');
+      setUsernameMsg({ type: 'success', text: res.data.message || 'Username saved!' });
+    } catch (err) {
+      setUsernameMsg({ type: 'error', text: err.response?.data?.message || 'Failed to save username.' });
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
+
   return (
     <div className={`settings-page${darkMode ? ' dark' : ''}`}>
       <div className="settings-header">
@@ -194,6 +228,70 @@ export default function SettingsPage() {
               <span className="info-value">{userInfo.department}</span>
             </div>
           )}
+        </div>
+      </section>
+
+      {/* ── Username (TEMPORARY) ── */}
+      <section className="settings-section">
+        <div className="section-header">
+          <span className="section-icon">@</span>
+          <h2>Login Username
+            <span style={{
+              marginLeft: '10px',
+              fontSize: '11px',
+              fontWeight: 600,
+              background: '#fef3c7',
+              color: '#b45309',
+              border: '1px solid #fcd34d',
+              borderRadius: '4px',
+              padding: '2px 8px',
+              verticalAlign: 'middle',
+              letterSpacing: '0.5px'
+            }}>TEMPORARY</span>
+          </h2>
+        </div>
+        <div className="section-body">
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
+            Set a username so you can log in with it instead of your email address.
+            {username && <> Your current username is <strong>@{username}</strong>.</>}
+            {!username && <> You have not set a username yet — you can still log in with your email.</>}
+          </p>
+          <form onSubmit={handleUsernameSave}>
+            <div className="settings-form-group">
+              <label>Username</label>
+              <input
+                type="text"
+                className="settings-input"
+                value={usernameInput}
+                onChange={e => setUsernameInput(e.target.value)}
+                placeholder="e.g. john_doe (no spaces, min 3 chars)"
+                minLength={3}
+                pattern="^\S+$"
+                title="Username cannot contain spaces"
+              />
+            </div>
+            {usernameMsg && (
+              <div className={`settings-msg ${usernameMsg.type}`}>{usernameMsg.text}</div>
+            )}
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <button type="submit" className="settings-btn btn-primary" disabled={usernameLoading}>
+                {usernameLoading ? 'Saving...' : username ? 'Update Username' : 'Set Username'}
+              </button>
+              {username && (
+                <button
+                  type="button"
+                  className="settings-btn btn-secondary"
+                  disabled={usernameLoading}
+                  onClick={() => {
+                    setUsernameInput('');
+                    setUsernameMsg(null);
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </form>
         </div>
       </section>
 

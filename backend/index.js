@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { normalizeRole, ROLES, isRole, getRoleQueryArray } = require('./utils/roles');
+const { sendFormForwardedEmail, sendStatusUpdateEmail, sendEditRequestEmail } = require('./utils/emailService');
 require("dotenv").config();
 require('./connection');
 
@@ -245,14 +246,26 @@ app.post('/facultyFormSubmission', async (req, res) => {
     }).save();
     console.log("form submitted!")
 
-    // Notify Recipient
-    // Logic to resolve 'to' role to emails would go here. 
-    // For now, simpler implementation: 
-    // If 'to' is a role like 'HOD' or 'Principal', we might need to find the user.
-    // Ideally, we'd have a helper to resolve Roles -> Emails based on Dept.
-    // For this step, let's assume 'to' might be a specific email OR we notify all users with that role/dept.
-
     await notifyRecipients(savedForm, 'faculty', to, department);
+
+    // --- SMTP: Email submitter confirmation ---
+    try {
+      const submitter = await logmodel.findOne({ email: submittedBy }).lean();
+      if (submitter) {
+        await sendStatusUpdateEmail({
+          recipientEmail: submittedBy,
+          recipientName: `${submitter.fName || ''} ${submitter.lName || ''}`.trim(),
+          formSubject: subject,
+          formId: savedForm._id,
+          formType: 'faculty',
+          newStatus: 'forwarded',
+          actionBy: 'You (submission confirmed)',
+          remarks: ''
+        });
+      }
+    } catch (emailErr) {
+      console.error('[EMAIL] Submission confirmation email failed:', emailErr.message);
+    }
 
     res.send('Form submitted');
   } catch (error) {
@@ -284,6 +297,25 @@ app.post('/studentFormSubmission', async (req, res) => {
     console.log("form submitted!")
 
     await notifyRecipients(savedForm, 'student', to, department);
+
+    // --- SMTP: Email submitter confirmation ---
+    try {
+      const submitter = await logmodel.findOne({ email: submittedBy }).lean();
+      if (submitter) {
+        await sendStatusUpdateEmail({
+          recipientEmail: submittedBy,
+          recipientName: `${submitter.fName || ''} ${submitter.lName || ''}`.trim(),
+          formSubject: subject,
+          formId: savedForm._id,
+          formType: 'student',
+          newStatus: 'forwarded',
+          actionBy: 'You (submission confirmed)',
+          remarks: ''
+        });
+      }
+    } catch (emailErr) {
+      console.error('[EMAIL] Submission confirmation email failed:', emailErr.message);
+    }
 
     res.send('Form submitted');
   } catch (error) {
@@ -425,13 +457,34 @@ app.delete('/deleteUser/:email', async (req, res) => {
 
 
 app.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  // Accept either { email, password } (old) or { identifier, password } (new username login)
+  const { email, identifier, password } = req.body;
+  const loginKey = identifier || email; // support both field names
+
+  if (!loginKey || !password) {
+    return res.status(400).send('Username/email and password are required.');
+  }
+
   try {
-    const usr = await logmodel.findOne({ email });
-    if (!usr) return res.status(400).send("Invalid Credentials");
+    // Try to find user by username first, then by email
+    let usr = null;
+
+    // Check if it looks like an email
+    const isEmail = loginKey.includes('@');
+
+    if (isEmail) {
+      usr = await logmodel.findOne({ email: loginKey });
+    } else {
+      // Try username first
+      usr = await logmodel.findOne({ username: loginKey });
+      // Fallback to email just in case
+      if (!usr) usr = await logmodel.findOne({ email: loginKey });
+    }
+
+    if (!usr) return res.status(400).send('Invalid credentials');
 
     const isMatch = await bcrypt.compare(password, usr.password);
-    if (!isMatch) return res.status(400).send("Invalid Credentials");
+    if (!isMatch) return res.status(400).send('Invalid credentials');
 
     const token = jwt.sign(
       { _id: usr._id, email: usr.email, role: usr.role, department: usr.department, year: usr.year, div: usr.div },
@@ -445,11 +498,51 @@ app.post('/login', async (req, res) => {
       lName: usr.lName,
       email: usr.email,
       role: usr.role,
+      username: usr.username || null,
       token
     });
   } catch (error) {
     console.log(error);
     res.status(500).send("Login failed");
+  }
+});
+
+// TEMPORARY: Update/set username for login
+app.put('/updateUsername', async (req, res) => {
+  const { email, username } = req.body;
+  if (!email) return res.status(400).send({ message: 'Email is required.' });
+
+  try {
+    // If username is empty string, clear it (allow email-only login)
+    const newUsername = username?.trim() || null;
+
+    // Validate: no spaces, min 3 chars if set
+    if (newUsername) {
+      if (newUsername.length < 3) {
+        return res.status(400).send({ message: 'Username must be at least 3 characters.' });
+      }
+      if (/\s/.test(newUsername)) {
+        return res.status(400).send({ message: 'Username cannot contain spaces.' });
+      }
+      // Check uniqueness (exclude current user)
+      const existing = await logmodel.findOne({ username: newUsername, email: { $ne: email } });
+      if (existing) {
+        return res.status(409).send({ message: 'Username is already taken. Please choose another.' });
+      }
+    }
+
+    const updated = await logmodel.findOneAndUpdate(
+      { email },
+      { $set: { username: newUsername } },
+      { new: true }
+    ).select('-password');
+
+    if (!updated) return res.status(404).send({ message: 'User not found.' });
+
+    res.status(200).send({ message: 'Username updated successfully.', username: updated.username });
+  } catch (error) {
+    console.error('Error updating username:', error);
+    res.status(500).send({ message: 'Failed to update username.', error: error.message });
   }
 });
 
@@ -1213,6 +1306,72 @@ app.put('/updateFormRemarksStatus', async (req, res) => {
         notifyRecipients(updatedForm, formType, newRecipient, updatedForm.department)
           .catch(err => console.error("Error in background notifyRecipients:", err));
       }
+    }
+
+    // ── SMTP Email Notifications ─────────────────────────────────────────────
+    try {
+      const submitter = await logmodel.findOne({ email: updatedForm.submittedBy }).lean();
+      const submitterName = submitter ? `${submitter.fName || ''} ${submitter.lName || ''}`.trim() : updatedForm.submittedBy;
+
+      if (status === 'edit') {
+        // Edit requested: email the original submitter
+        await sendEditRequestEmail({
+          recipientEmail: updatedForm.submittedBy,
+          recipientName: submitterName,
+          formSubject: updatedForm.subject,
+          formId: updatedForm._id,
+          formType,
+          requestedBy: authorName || by || 'Reviewer',
+          remarks: remarks || ''
+        });
+
+      } else if (['accepted', 'approved', 'rejected'].includes(status)) {
+        // Final decision: email the submitter
+        await sendStatusUpdateEmail({
+          recipientEmail: updatedForm.submittedBy,
+          recipientName: submitterName,
+          formSubject: updatedForm.subject,
+          formId: updatedForm._id,
+          formType,
+          newStatus: status,
+          actionBy: authorName || by || 'Reviewer',
+          remarks: remarks || ''
+        });
+
+      } else if (status === 'forwarded' && to) {
+        // Forwarded: email submitter about progress + email new recipients
+        await sendStatusUpdateEmail({
+          recipientEmail: updatedForm.submittedBy,
+          recipientName: submitterName,
+          formSubject: updatedForm.subject,
+          formId: updatedForm._id,
+          formType,
+          newStatus: 'forwarded',
+          actionBy: authorName || by || 'Reviewer',
+          remarks: remarks || ''
+        });
+
+        // Resolve next recipients and email them
+        const newRecipient = Array.isArray(to) ? to[to.length - 1] : to;
+        const query = { role: { $regex: new RegExp(`^${newRecipient}$`, 'i') } };
+        if (['HOD', 'FacultyAdvisor'].includes(newRecipient) && updatedForm.department) {
+          query.department = updatedForm.department;
+        }
+        const nextReviewers = await logmodel.find(query).lean();
+        for (const reviewer of nextReviewers) {
+          await sendFormForwardedEmail({
+            recipientEmail: reviewer.email,
+            recipientName: `${reviewer.fName || ''} ${reviewer.lName || ''}`.trim(),
+            submitterName,
+            formSubject: updatedForm.subject,
+            formId: updatedForm._id,
+            formType,
+            actionBy: authorName || by || 'Reviewer'
+          });
+        }
+      }
+    } catch (emailErr) {
+      console.error('[EMAIL] Status update email failed:', emailErr.message);
     }
 
     console.log('Update successful. Returning updated form.');

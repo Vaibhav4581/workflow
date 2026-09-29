@@ -21,6 +21,7 @@
     "mongodb-memory-server": "^11.0.1",
     "mongoose": "^8.16.2",
     "mongoose-id-autoincrement": "^1.0.5",
-    "mongoose-sequence": "^6.0.1"
+    "mongoose-sequence": "^6.0.1",
+    "nodemailer": "^10.0.12"
   }
 }
