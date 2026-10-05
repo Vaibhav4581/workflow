@@ -68,6 +68,8 @@ function PrincipalPage() {
         formType,
         remarks,
         by: token.role,
+        authorName: localStorage.getItem('userName') || token.role || 'Principal',
+        authorEmail: token.email || localStorage.getItem('userEmail') || '',
         status,
       });
       // Optimistically update the receivedSubmissions state
@@ -99,6 +101,8 @@ function PrincipalPage() {
         remarks: actionRemarks || remarks,
         forwardTo: forwardTo || undefined,
         by: token.role,
+        authorName: localStorage.getItem('userName') || token.role || 'Principal',
+        authorEmail: token.email || localStorage.getItem('userEmail') || '',
       });
       
       // Update local state
@@ -177,6 +181,8 @@ function PrincipalPage() {
         remarks: defaultRemarks,
         status: newStatus,
         by: token.role,
+        authorName: localStorage.getItem('userName') || token.role || 'Principal',
+        authorEmail: token.email || localStorage.getItem('userEmail') || '',
       });
       
       // Refresh the page to show updated data

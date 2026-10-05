@@ -1,11 +1,11 @@
+require("dotenv").config(); // ← MUST be first so SMTP_USER/PASS are set before emailService loads
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { normalizeRole, ROLES, isRole, getRoleQueryArray } = require('./utils/roles');
-const { sendFormForwardedEmail, sendStatusUpdateEmail, sendEditRequestEmail } = require('./utils/emailService');
-require("dotenv").config();
+const { sendFormForwardedEmail, sendStatusUpdateEmail, sendEditRequestEmail, sendForwarderUpdateEmail } = require('./utils/emailService');
 require('./connection');
 
 const logmodel = require('./models/User');
@@ -246,28 +246,46 @@ app.post('/facultyFormSubmission', async (req, res) => {
     }).save();
     console.log("form submitted!")
 
-    await notifyRecipients(savedForm, 'faculty', to, department);
+    notifyRecipients(savedForm, 'faculty', to, department).catch(() => {});
 
-    // --- SMTP: Email submitter confirmation ---
-    try {
-      const submitter = await logmodel.findOne({ email: submittedBy }).lean();
-      if (submitter) {
-        await sendStatusUpdateEmail({
-          recipientEmail: submittedBy,
-          recipientName: `${submitter.fName || ''} ${submitter.lName || ''}`.trim(),
-          formSubject: subject,
-          formId: savedForm._id,
-          formType: 'faculty',
-          newStatus: 'forwarded',
-          actionBy: 'You (submission confirmed)',
-          remarks: ''
-        });
-      }
-    } catch (emailErr) {
-      console.error('[EMAIL] Submission confirmation email failed:', emailErr.message);
-    }
-
+    // Respond immediately — emails sent in background
     res.send('Form submitted');
+
+    // --- SMTP: fire-and-forget ---
+    setImmediate(async () => {
+      try {
+        const submitter = await logmodel.findOne({ email: submittedBy }).lean();
+        const submitterName = submitter ? `${submitter.fName || ''} ${submitter.lName || ''}`.trim() : submittedBy;
+
+        if (submitter) {
+          await sendStatusUpdateEmail({
+            recipientEmail: submittedBy,
+            recipientName: submitterName,
+            formSubject: subject,
+            formId: savedForm._id,
+            formType: 'faculty',
+            newStatus: 'forwarded',
+            actionBy: 'You (submission confirmed)',
+            remarks: ''
+          });
+        }
+
+        const firstRecipient = Array.isArray(to) ? to[to.length - 1] : to;
+        const query = { role: { $regex: new RegExp(`^${firstRecipient}$`, 'i') } };
+        if (['HOD', 'FacultyAdvisor'].includes(firstRecipient) && department) query.department = department;
+        const reviewers = await logmodel.find(query).lean();
+        for (const reviewer of reviewers) {
+          await sendFormForwardedEmail({
+            recipientEmail: reviewer.email,
+            recipientName: `${reviewer.fName || ''} ${reviewer.lName || ''}`.trim(),
+            submitterName, formSubject: subject,
+            formId: savedForm._id, formType: 'faculty', actionBy: submitterName
+          });
+        }
+      } catch (emailErr) {
+        console.error('[EMAIL] Faculty submission email failed:', emailErr.message);
+      }
+    });
   } catch (error) {
     console.log(error);
     res.status(500).send("Form submission failed");
@@ -296,28 +314,46 @@ app.post('/studentFormSubmission', async (req, res) => {
     }).save();
     console.log("form submitted!")
 
-    await notifyRecipients(savedForm, 'student', to, department);
+    notifyRecipients(savedForm, 'student', to, department).catch(() => {});
 
-    // --- SMTP: Email submitter confirmation ---
-    try {
-      const submitter = await logmodel.findOne({ email: submittedBy }).lean();
-      if (submitter) {
-        await sendStatusUpdateEmail({
-          recipientEmail: submittedBy,
-          recipientName: `${submitter.fName || ''} ${submitter.lName || ''}`.trim(),
-          formSubject: subject,
-          formId: savedForm._id,
-          formType: 'student',
-          newStatus: 'forwarded',
-          actionBy: 'You (submission confirmed)',
-          remarks: ''
-        });
-      }
-    } catch (emailErr) {
-      console.error('[EMAIL] Submission confirmation email failed:', emailErr.message);
-    }
-
+    // Respond immediately — emails sent in background
     res.send('Form submitted');
+
+    // --- SMTP: fire-and-forget ---
+    setImmediate(async () => {
+      try {
+        const submitter = await logmodel.findOne({ email: submittedBy }).lean();
+        const submitterName = submitter ? `${submitter.fName || ''} ${submitter.lName || ''}`.trim() : submittedBy;
+
+        if (submitter) {
+          await sendStatusUpdateEmail({
+            recipientEmail: submittedBy,
+            recipientName: submitterName,
+            formSubject: subject,
+            formId: savedForm._id,
+            formType: 'student',
+            newStatus: 'forwarded',
+            actionBy: 'You (submission confirmed)',
+            remarks: ''
+          });
+        }
+
+        const firstRecipient = Array.isArray(to) ? to[to.length - 1] : to;
+        const query = { role: { $regex: new RegExp(`^${firstRecipient}$`, 'i') } };
+        if (['HOD', 'FacultyAdvisor'].includes(firstRecipient) && department) query.department = department;
+        const reviewers = await logmodel.find(query).lean();
+        for (const reviewer of reviewers) {
+          await sendFormForwardedEmail({
+            recipientEmail: reviewer.email,
+            recipientName: `${reviewer.fName || ''} ${reviewer.lName || ''}`.trim(),
+            submitterName, formSubject: subject,
+            formId: savedForm._id, formType: 'student', actionBy: submitterName
+          });
+        }
+      } catch (emailErr) {
+        console.error('[EMAIL] Student submission email failed:', emailErr.message);
+      }
+    });
   } catch (error) {
     console.log(error);
     res.status(500).send("Form submission failed");
@@ -1196,6 +1232,90 @@ app.listen(PORT, () => {
 // });
 
 
+/**
+ * Helper to identify all previous reviewers who forwarded a form.
+ * Excludes the original submitter and the current actor taking the action.
+ */
+async function getFormForwarders(form, currentActorEmail = '', currentActorRole = '') {
+  const forwarders = [];
+  const seenEmails = new Set();
+
+  const normalizeEmail = (e) => (e || '').trim().toLowerCase();
+  const actorEmailNorm = normalizeEmail(currentActorEmail);
+  const submitterEmailNorm = normalizeEmail(form.submittedBy);
+
+  // 1. Scan history entries for actions that involved forwarding
+  if (Array.isArray(form.history)) {
+    for (const h of form.history) {
+      const actionText = (h.action || '').toLowerCase();
+      if (actionText.includes('forward')) {
+        let email = h.authorEmail ? h.authorEmail.trim() : '';
+        let name = h.authorName ? h.authorName.trim() : '';
+
+        // If authorEmail is not set, check if `by` is an email
+        if (!email && h.by && h.by.includes('@')) {
+          email = h.by.trim();
+        }
+
+        // If still no email, lookup by role in logmodel
+        if (!email && h.by) {
+          const roleQuery = { role: { $regex: new RegExp(`^${h.by}$`, 'i') } };
+          if (['hod', 'facultyadvisor'].includes(h.by.toLowerCase()) && form.department) {
+            roleQuery.department = form.department;
+          }
+          const users = await logmodel.find(roleQuery).lean();
+          for (const u of users) {
+            const norm = normalizeEmail(u.email);
+            if (norm && norm !== submitterEmailNorm && norm !== actorEmailNorm && !seenEmails.has(norm)) {
+              seenEmails.add(norm);
+              forwarders.push({
+                email: u.email,
+                name: `${u.fName || ''} ${u.lName || ''}`.trim() || u.email
+              });
+            }
+          }
+          continue;
+        }
+
+        if (email) {
+          const norm = normalizeEmail(email);
+          if (norm && norm !== submitterEmailNorm && norm !== actorEmailNorm && !seenEmails.has(norm)) {
+            seenEmails.add(norm);
+            forwarders.push({ email, name: name || email });
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Also check routing chain `form.to` for intermediate roles that forwarded it
+  if (Array.isArray(form.to) && form.to.length > 1) {
+    const prevRoles = form.to.slice(0, -1);
+    for (const roleName of prevRoles) {
+      if (!roleName) continue;
+      if (currentActorRole && roleName.toLowerCase() === currentActorRole.toLowerCase()) continue;
+
+      const roleQuery = { role: { $regex: new RegExp(`^${roleName}$`, 'i') } };
+      if (['hod', 'facultyadvisor'].includes(roleName.toLowerCase()) && form.department) {
+        roleQuery.department = form.department;
+      }
+      const users = await logmodel.find(roleQuery).lean();
+      for (const u of users) {
+        const norm = normalizeEmail(u.email);
+        if (norm && norm !== submitterEmailNorm && norm !== actorEmailNorm && !seenEmails.has(norm)) {
+          seenEmails.add(norm);
+          forwarders.push({
+            email: u.email,
+            name: `${u.fName || ''} ${u.lName || ''}`.trim() || u.email
+          });
+        }
+      }
+    }
+  }
+
+  return forwarders;
+}
+
 app.put('/updateFormRemarksStatus', async (req, res) => {
   const { formId, formType, remarks, status, to, by, authorName, authorEmail, category, subject, subjectElaboration, department, details, attachments, others } = req.body;
 
@@ -1308,74 +1428,162 @@ app.put('/updateFormRemarksStatus', async (req, res) => {
       }
     }
 
-    // ── SMTP Email Notifications ─────────────────────────────────────────────
-    try {
-      const submitter = await logmodel.findOne({ email: updatedForm.submittedBy }).lean();
-      const submitterName = submitter ? `${submitter.fName || ''} ${submitter.lName || ''}`.trim() : updatedForm.submittedBy;
+    // Send response immediately to keep UI fast and responsive
+    console.log('Update successful. Returning updated form.');
+    res.status(200).send(updatedForm);
 
-      if (status === 'edit') {
-        // Edit requested: email the original submitter
-        await sendEditRequestEmail({
-          recipientEmail: updatedForm.submittedBy,
-          recipientName: submitterName,
-          formSubject: updatedForm.subject,
-          formId: updatedForm._id,
-          formType,
-          requestedBy: authorName || by || 'Reviewer',
-          remarks: remarks || ''
-        });
-
-      } else if (['accepted', 'approved', 'rejected'].includes(status)) {
-        // Final decision: email the submitter
-        await sendStatusUpdateEmail({
-          recipientEmail: updatedForm.submittedBy,
-          recipientName: submitterName,
-          formSubject: updatedForm.subject,
-          formId: updatedForm._id,
-          formType,
-          newStatus: status,
-          actionBy: authorName || by || 'Reviewer',
-          remarks: remarks || ''
-        });
-
-      } else if (status === 'forwarded' && to) {
-        // Forwarded: email submitter about progress + email new recipients
-        await sendStatusUpdateEmail({
-          recipientEmail: updatedForm.submittedBy,
-          recipientName: submitterName,
-          formSubject: updatedForm.subject,
-          formId: updatedForm._id,
-          formType,
-          newStatus: 'forwarded',
-          actionBy: authorName || by || 'Reviewer',
-          remarks: remarks || ''
-        });
-
-        // Resolve next recipients and email them
-        const newRecipient = Array.isArray(to) ? to[to.length - 1] : to;
-        const query = { role: { $regex: new RegExp(`^${newRecipient}$`, 'i') } };
-        if (['HOD', 'FacultyAdvisor'].includes(newRecipient) && updatedForm.department) {
-          query.department = updatedForm.department;
+    // ── SMTP Email Notifications (Non-blocking) ───────────────────────────────
+    setImmediate(async () => {
+      try {
+        let effectiveAuthorEmail = authorEmail;
+        let effectiveAuthorName = authorName;
+        if (!effectiveAuthorEmail && req.headers?.authorization) {
+          try {
+            const tokenStr = req.headers.authorization.split(' ')[1];
+            if (tokenStr) {
+              const decoded = jwt.decode(tokenStr);
+              if (decoded && decoded.email) effectiveAuthorEmail = decoded.email;
+            }
+          } catch (e) {}
         }
-        const nextReviewers = await logmodel.find(query).lean();
-        for (const reviewer of nextReviewers) {
-          await sendFormForwardedEmail({
-            recipientEmail: reviewer.email,
-            recipientName: `${reviewer.fName || ''} ${reviewer.lName || ''}`.trim(),
-            submitterName,
+        if (!effectiveAuthorName && effectiveAuthorEmail) {
+          const authorUser = await logmodel.findOne({ email: effectiveAuthorEmail }).lean();
+          if (authorUser) {
+            effectiveAuthorName = `${authorUser.fName || ''} ${authorUser.lName || ''}`.trim();
+          }
+        }
+
+        const actionByDisplay = effectiveAuthorName || by || 'Reviewer';
+
+        const submitter = await logmodel.findOne({ email: updatedForm.submittedBy }).lean();
+        const submitterName = submitter ? `${submitter.fName || ''} ${submitter.lName || ''}`.trim() : updatedForm.submittedBy;
+
+        // Collect all previous forwarders to notify them
+        const forwarders = await getFormForwarders(updatedForm, effectiveAuthorEmail, by);
+        console.log(`[EMAIL] Found ${forwarders.length} forwarder(s) to notify for form ${updatedForm._id}:`, forwarders.map(f => f.email));
+
+        if (status === 'edit') {
+          // 1. Email original submitter
+          await sendEditRequestEmail({
+            recipientEmail: updatedForm.submittedBy,
+            recipientName: submitterName,
             formSubject: updatedForm.subject,
             formId: updatedForm._id,
             formType,
-            actionBy: authorName || by || 'Reviewer'
+            requestedBy: actionByDisplay,
+            remarks: remarks || ''
           });
-        }
-      }
-    } catch (emailErr) {
-      console.error('[EMAIL] Status update email failed:', emailErr.message);
-    }
 
-    console.log('Update successful. Returning updated form.');
-    res.status(200).send(updatedForm);
+          // 2. Email all forwarders that edit was requested
+          for (const fwd of forwarders) {
+            await sendForwarderUpdateEmail({
+              recipientEmail: fwd.email,
+              recipientName: fwd.name,
+              submitterName,
+              formSubject: updatedForm.subject,
+              formId: updatedForm._id,
+              formType,
+              newStatus: 'edit',
+              actionBy: actionByDisplay,
+              remarks: remarks || ''
+            });
+          }
+
+        } else if (['accepted', 'approved', 'rejected'].includes(status)) {
+          // 1. Email original submitter
+          await sendStatusUpdateEmail({
+            recipientEmail: updatedForm.submittedBy,
+            recipientName: submitterName,
+            formSubject: updatedForm.subject,
+            formId: updatedForm._id,
+            formType,
+            newStatus: status,
+            actionBy: actionByDisplay,
+            remarks: remarks || ''
+          });
+
+          // 2. Email all forwarders about final decision (approved/accepted or rejected)
+          for (const fwd of forwarders) {
+            await sendForwarderUpdateEmail({
+              recipientEmail: fwd.email,
+              recipientName: fwd.name,
+              submitterName,
+              formSubject: updatedForm.subject,
+              formId: updatedForm._id,
+              formType,
+              newStatus: status,
+              actionBy: actionByDisplay,
+              remarks: remarks || ''
+            });
+          }
+
+        } else if (status === 'forwarded' && to) {
+          // 1. Email original submitter about progress
+          await sendStatusUpdateEmail({
+            recipientEmail: updatedForm.submittedBy,
+            recipientName: submitterName,
+            formSubject: updatedForm.subject,
+            formId: updatedForm._id,
+            formType,
+            newStatus: 'forwarded',
+            actionBy: actionByDisplay,
+            remarks: remarks || ''
+          });
+
+          // 2. Resolve next recipients and email them
+          const newRecipient = Array.isArray(to) ? to[to.length - 1] : to;
+          const query = { role: { $regex: new RegExp(`^${newRecipient}$`, 'i') } };
+          if (['HOD', 'FacultyAdvisor'].includes(newRecipient) && updatedForm.department) {
+            query.department = updatedForm.department;
+          }
+          const nextReviewers = await logmodel.find(query).lean();
+          for (const reviewer of nextReviewers) {
+            await sendFormForwardedEmail({
+              recipientEmail: reviewer.email,
+              recipientName: `${reviewer.fName || ''} ${reviewer.lName || ''}`.trim(),
+              submitterName,
+              formSubject: updatedForm.subject,
+              formId: updatedForm._id,
+              formType,
+              actionBy: actionByDisplay
+            });
+          }
+
+          // 3. Email previous forwarders about the forward progress
+          for (const fwd of forwarders) {
+            await sendForwarderUpdateEmail({
+              recipientEmail: fwd.email,
+              recipientName: fwd.name,
+              submitterName,
+              formSubject: updatedForm.subject,
+              formId: updatedForm._id,
+              formType,
+              newStatus: 'forwarded',
+              actionBy: actionByDisplay,
+              remarks: remarks || ''
+            });
+          }
+
+        } else {
+          // Any other update (e.g. form resubmitted after edit, or remarks updated)
+          for (const fwd of forwarders) {
+            await sendForwarderUpdateEmail({
+              recipientEmail: fwd.email,
+              recipientName: fwd.name,
+              submitterName,
+              formSubject: updatedForm.subject,
+              formId: updatedForm._id,
+              formType,
+              newStatus: status || 'awaiting',
+              actionBy: actionByDisplay,
+              remarks: remarks || ''
+            });
+          }
+        }
+      } catch (emailErr) {
+        console.error('[EMAIL] Status update email failed:', emailErr.message);
+      }
+    });
 
   } catch (error) {
     console.error("Error in /updateFormRemarksStatus:", error);

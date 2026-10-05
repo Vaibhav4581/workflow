@@ -95,6 +95,7 @@ function NewSubmission() {
 
   const [userRole, setUserRole] = useState();
   const [userDepartment, setUserDepartment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formStudent, setFormStudent] = useState({ ...initialStateStudent });
   const [formStaff,   setFormStaff]   = useState({ ...initialStateStaff });
 
@@ -248,6 +249,8 @@ function NewSubmission() {
 
   const handleSubmitStudent = async e => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       const token = jwtDecode(localStorage.getItem('token'));
       const attachments = await buildAttachments(attachmentsStudent);
@@ -256,6 +259,8 @@ function NewSubmission() {
         await axios.put('/updateFormRemarksStatus', {
           formId: editFormId, formType: 'student', status: 'awaiting',
           remarks: formStudent.additionalRemarks || 'Updated by student', by: token.email,
+          authorName: localStorage.getItem('userName') || token.email,
+          authorEmail: token.email,
           department: formStudent.department,
           details: formStudent.details,
           attachments,
@@ -270,14 +275,21 @@ function NewSubmission() {
           details: formStudent.details, submittedBy: token.email,
           attachments, year: token.year, div: token.div,
         }), { headers: { 'Content-Type': 'application/json' } });
-        toast.success('Submitted successfully');
+        toast.success('Form submitted successfully! ✅');
       }
       navigate('/dashboard');
-    } catch (err) { toast.error('Submission failed. Please try again.'); console.error(err); }
+    } catch (err) {
+      toast.error('Submission failed. Please try again.');
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSubmitStaff = async e => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       const token = jwtDecode(localStorage.getItem('token'));
       const attachments = await buildAttachments(attachmentsStaff);
@@ -286,6 +298,8 @@ function NewSubmission() {
         await axios.put('/updateFormRemarksStatus', {
           formId: editFormId, formType: 'faculty', status: 'awaiting',
           remarks: formStaff.additionalRemarks || 'Updated by faculty', by: token.email,
+          authorName: localStorage.getItem('userName') || token.email,
+          authorEmail: token.email,
           department: formStaff.department,
           details: formStaff.details,
           attachments,
@@ -299,10 +313,15 @@ function NewSubmission() {
           others: formStaff.toOthers, department: formStaff.department,
           details: formStaff.details, submittedBy: token.email, attachments,
         }), { headers: { 'Content-Type': 'application/json' } });
-        toast.success('Submitted successfully');
+        toast.success('Form submitted successfully! ✅');
       }
       navigate('/dashboard');
-    } catch (err) { toast.error('Submission failed. Please try again.'); console.error(err); }
+    } catch (err) {
+      toast.error('Submission failed. Please try again.');
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // ── Label helpers ─────────────────────────────────────────────────────────
@@ -475,8 +494,10 @@ function NewSubmission() {
       )}
 
       <div className="form-row form-btn-row">
-        <button type="submit" className="submit-btn">{editMode ? 'Update & Resubmit' : 'Submit'}</button>
-        <button type="button" className="cancel-btn" onClick={() => window.history.back()}>Cancel</button>
+        <button type="submit" className="submit-btn" disabled={isSubmitting}>
+          {isSubmitting ? 'Submitting...' : (editMode ? 'Update & Resubmit' : 'Submit')}
+        </button>
+        <button type="button" className="cancel-btn" onClick={() => window.history.back()} disabled={isSubmitting}>Cancel</button>
         <button type="button" className="print-btn" onClick={handlePrintPDF}>Print as PDF</button>
       </div>
     </form>
@@ -583,8 +604,10 @@ function NewSubmission() {
       )}
 
       <div className="form-row form-btn-row">
-        <button type="submit" className="submit-btn">{editMode ? 'Update & Resubmit' : 'Submit'}</button>
-        <button type="button" className="cancel-btn" onClick={() => window.history.back()}>Cancel</button>
+        <button type="submit" className="submit-btn" disabled={isSubmitting}>
+          {isSubmitting ? 'Submitting...' : (editMode ? 'Update & Resubmit' : 'Submit')}
+        </button>
+        <button type="button" className="cancel-btn" onClick={() => window.history.back()} disabled={isSubmitting}>Cancel</button>
         <button type="button" className="print-btn" onClick={handlePrintPDF}>Print as PDF</button>
       </div>
     </form>

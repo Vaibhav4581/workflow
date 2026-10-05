@@ -3,19 +3,21 @@
 
 const nodemailer = require('nodemailer');
 
-// Create a reusable transporter (created once, reused for all emails)
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false, // STARTTLS on port 587 (NOT SSL 465)
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false, // Allow self-signed certs in dev
-  }
-});
+// Lazy transporter — created on first use so that process.env is fully loaded
+function getTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: false, // STARTTLS on port 587 (NOT SSL 465)
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    }
+  });
+}
 
 /**
  * Send a generic email.
@@ -29,6 +31,7 @@ async function sendEmail({ to, subject, html }) {
   }
 
   try {
+    const transporter = getTransporter(); // read credentials now, not at startup
     const info = await transporter.sendMail({
       from: process.env.SMTP_FROM || `SNGCE Workflow <${process.env.SMTP_USER}>`,
       to,
@@ -223,9 +226,82 @@ async function sendEditRequestEmail({ recipientEmail, recipientName, formSubject
   await sendEmail({ to: recipientEmail, subject, html });
 }
 
+/**
+ * Notify anyone who previously forwarded a form about an update, rejection, edit request, or approval.
+ */
+async function sendForwarderUpdateEmail({ recipientEmail, recipientName, submitterName, formSubject, formId, formType, newStatus, actionBy, remarks }) {
+  const viewUrl = `http://localhost:5173/received-forms/${formId}`;
+
+  const statusConfig = {
+    forwarded: { label: 'Forwarded ↗', color: '#3b82f6', bg: '#eff6ff', icon: '📤' },
+    accepted:  { label: 'Accepted ✅',  color: '#16a34a', bg: '#f0fdf4', icon: '✅' },
+    approved:  { label: 'Approved ✅',  color: '#16a34a', bg: '#f0fdf4', icon: '✅' },
+    rejected:  { label: 'Rejected ❌',  color: '#dc2626', bg: '#fef2f2', icon: '❌' },
+    edit:      { label: 'Edit Requested ✏️', color: '#d97706', bg: '#fffbeb', icon: '✏️' },
+    awaiting:  { label: 'Updated / Resubmitted 🔄', color: '#0284c7', bg: '#f0f9ff', icon: '🔄' },
+  };
+
+  const config = statusConfig[newStatus] || { label: newStatus || 'Updated', color: '#6b7280', bg: '#f9fafb', icon: '📋' };
+  const subject = `${config.icon} Form You Forwarded Was Updated — ${formSubject}`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; border-radius: 10px; overflow: hidden;">
+      <div style="background: linear-gradient(135deg, #1e3a8a, #3b82f6); padding: 30px; text-align: center;">
+        <h1 style="color: white; margin: 0; font-size: 22px;">${config.icon} Form Update Notice</h1>
+        <p style="color: #bfdbfe; margin: 8px 0 0 0;">SNGCE Workflow Management System</p>
+      </div>
+      <div style="padding: 30px; background: white;">
+        <p style="font-size: 16px; color: #374151;">Hello <strong>${recipientName || recipientEmail}</strong>,</p>
+        <p style="color: #6b7280;">A form that was previously forwarded by you has received an update.</p>
+        
+        <div style="background: ${config.bg}; border: 2px solid ${config.color}; border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0;">
+          <p style="margin: 0; font-size: 18px; font-weight: bold; color: ${config.color};">${config.label}</p>
+        </div>
+
+        <div style="background: #f9fafb; border-radius: 6px; padding: 20px; margin: 20px 0;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 6px 0; color: #6b7280; font-size: 14px; width: 140px;"><strong>Subject:</strong></td>
+              <td style="padding: 6px 0; color: #111827; font-size: 14px;">${formSubject}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #6b7280; font-size: 14px;"><strong>Submitted By:</strong></td>
+              <td style="padding: 6px 0; color: #111827; font-size: 14px;">${submitterName || 'N/A'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #6b7280; font-size: 14px;"><strong>Action Taken By:</strong></td>
+              <td style="padding: 6px 0; color: #111827; font-size: 14px;">${actionBy || 'Reviewer'}</td>
+            </tr>
+            ${remarks ? `<tr>
+              <td style="padding: 6px 0; color: #6b7280; font-size: 14px; vertical-align: top;"><strong>Remarks:</strong></td>
+              <td style="padding: 6px 0; color: #111827; font-size: 14px;">${remarks}</td>
+            </tr>` : ''}
+            <tr>
+              <td style="padding: 6px 0; color: #6b7280; font-size: 14px;"><strong>Date:</strong></td>
+              <td style="padding: 6px 0; color: #111827; font-size: 14px;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${viewUrl}" style="background: #3b82f6; color: white; text-decoration: none; padding: 14px 30px; border-radius: 8px; font-size: 16px; font-weight: bold; display: inline-block;">
+            View Form Details →
+          </a>
+        </div>
+      </div>
+      <div style="background: #f3f4f6; padding: 16px; text-align: center;">
+        <p style="color: #9ca3af; font-size: 12px; margin: 0;">SNGCE Workflow System &bull; Automated Notification &bull; Do not reply to this email</p>
+      </div>
+    </div>
+  `;
+
+  await sendEmail({ to: recipientEmail, subject, html });
+}
+
 module.exports = {
   sendEmail,
   sendFormForwardedEmail,
   sendStatusUpdateEmail,
   sendEditRequestEmail,
+  sendForwarderUpdateEmail,
 };
