@@ -5,15 +5,9 @@ import axios from 'axios';
 
 import './LoginPage.css';
 
-function detectRole(email) {
-  const studentRegex = /^sng\d{2}[a-zA-Z]{2,4}\d{3}/i;
-  if (studentRegex.test(email.split('@')[0])) return 'student';
-  return 'staff';
-}
-
 function LoginPage() {
   const [formData, setFormData] = useState({
-    email: '',
+    identifier: '', // accepts username or email
     password: ''
   });
   const [error, setError] = useState('');
@@ -41,14 +35,14 @@ function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!formData.email || !formData.password) {
-      setError('Please enter email and password');
+    if (!formData.identifier || !formData.password) {
+      setError('Please enter your username (or email) and password');
       return;
     }
 
     try {
       const response = await axios.post('/login', {
-        email: formData.email,
+        identifier: formData.identifier,
         password: formData.password
       });
 
@@ -82,12 +76,13 @@ function LoginPage() {
           <form onSubmit={handleSubmit} className="login-form">
             <div className="form-group">
               <input
-                type="email"
-                name="email"
-                placeholder="Email Address"
-                value={formData.email}
+                type="text"
+                name="identifier"
+                placeholder="Username or Email Address"
+                value={formData.identifier}
                 onChange={handleChange}
                 required
+                autoComplete="username"
               />
             </div>
             <div className="form-group">

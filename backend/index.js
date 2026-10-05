@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { normalizeRole, ROLES, isRole, getRoleQueryArray } = require('./utils/roles');
-const { authenticateToken, requireRole } = require('./middleware/auth');
+const { sendFormForwardedEmail, sendStatusUpdateEmail, sendEditRequestEmail } = require('./utils/emailService');
 require("dotenv").config();
 require('./connection');
 
@@ -64,7 +64,7 @@ const createNotification = async (recipientEmail, message, relatedFormId, relate
  * - email (string): The faculty member's email address.
  * - department (string): The department to search within.
  */
-app.get('/getFacultyAdvisor', authenticateToken, async (req, res) => {
+app.get('/getFacultyAdvisor', async (req, res) => {
   const { email, department } = req.query;
   // console.log(email, department);
   // --- Basic input validation ---
@@ -98,7 +98,7 @@ app.get('/getFacultyAdvisor', authenticateToken, async (req, res) => {
 });
 
 // Department Management
-app.get('/api/departments', authenticateToken, async (req, res) => {
+app.get('/api/departments', async (req, res) => {
   console.log("GET /api/departments hit");
   try {
     const depts = await Department.find();
@@ -108,7 +108,7 @@ app.get('/api/departments', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/departments', authenticateToken, async (req, res) => {
+app.post('/api/departments', async (req, res) => {
   try {
     const { name, shortName } = req.body;
     if (!name || !shortName) return res.status(400).send("Name and Short Name are required");
@@ -120,7 +120,7 @@ app.post('/api/departments', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/departments/:id', authenticateToken, async (req, res) => {
+app.delete('/api/departments/:id', async (req, res) => {
   try {
     await Department.findByIdAndDelete(req.params.id);
     res.send("Department deleted");
@@ -130,7 +130,7 @@ app.delete('/api/departments/:id', authenticateToken, async (req, res) => {
 });
 
 // Get all Faculty Forms
-app.get('/getAllFForms', authenticateToken, async (req, res) => {
+app.get('/getAllFForms', async (req, res) => {
   try {
     const forms = await fFormModel.find().select('-attachment -attachments');
     console.log(forms)
@@ -141,7 +141,7 @@ app.get('/getAllFForms', authenticateToken, async (req, res) => {
   }
 })
 // Get all Student Forms
-app.get('/getAllSForms', authenticateToken, async (req, res) => {
+app.get('/getAllSForms', async (req, res) => {
   try {
     const forms = await sFormModel.find().select('-attachment -attachments');
     console.log(forms)
@@ -152,10 +152,10 @@ app.get('/getAllSForms', authenticateToken, async (req, res) => {
   }
 })
 // Get Student Forms by user
-app.get('/getSFormsByUser', authenticateToken, async (req, res) => {
+app.get('/getSFormsByUser', async (req, res) => {
   const { email } = req.query;
   try {
-    const forms = await sFormModel.find({ submittedBy: email }).select('-attachment -attachments');
+    const forms = await sFormModel.find().select('-attachment -attachments');
     res.send(forms.map(s => ({ ...s.toObject(), owner: 'student' })));
   } catch (error) {
     console.log(error);
@@ -163,10 +163,10 @@ app.get('/getSFormsByUser', authenticateToken, async (req, res) => {
   }
 });
 // Get Faculty Forms by user
-app.get('/getFFormsByUser', authenticateToken, async (req, res) => {
+app.get('/getFFormsByUser', async (req, res) => {
   const { email } = req.query;
   try {
-    const forms = await fFormModel.find({ submittedBy: email }).select('-attachment -attachments');
+    const forms = await fFormModel.find().select('-attachment -attachments');
     res.send(forms.map(s => ({ ...s.toObject(), owner: 'faculty' })));
   } catch (error) {
     console.log(error);
@@ -174,7 +174,7 @@ app.get('/getFFormsByUser', authenticateToken, async (req, res) => {
   }
 });
 // Get single Student Form by ID
-app.get('/getSFormById/:id', authenticateToken, async (req, res) => {
+app.get('/getSFormById/:id', async (req, res) => {
   console.log(req.params.id);
   try {
     const form = await sFormModel.findById(req.params.id);
@@ -192,7 +192,7 @@ app.get('/getSFormById/:id', authenticateToken, async (req, res) => {
   }
 });
 // Get single Faculty Form by ID
-app.get('/getFFormById/:id', authenticateToken, async (req, res) => {
+app.get('/getFFormById/:id', async (req, res) => {
   console.log(req.params.id);
   try {
     const form = await fFormModel.findById(req.params.id);
@@ -210,7 +210,7 @@ app.get('/getFFormById/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/createFacultyAdvisor', authenticateToken, async (req, res) => {
+app.post('/createFacultyAdvisor', async (req, res) => {
   const { year, department, facultyNames } = req.body;
   try {
     await fAdvisorModel({ year, department, facultyNames }).save();
@@ -223,7 +223,7 @@ app.post('/createFacultyAdvisor', authenticateToken, async (req, res) => {
 });
 
 
-app.post('/facultyFormSubmission', authenticateToken, async (req, res) => {
+app.post('/facultyFormSubmission', async (req, res) => {
   const { date, to, category, subject, subjectElaboration, others, department, details, attachment, attachments, submittedBy } = req.body;
   console.log(req.body);
   try {
@@ -246,14 +246,26 @@ app.post('/facultyFormSubmission', authenticateToken, async (req, res) => {
     }).save();
     console.log("form submitted!")
 
-    // Notify Recipient
-    // Logic to resolve 'to' role to emails would go here. 
-    // For now, simpler implementation: 
-    // If 'to' is a role like 'HOD' or 'Principal', we might need to find the user.
-    // Ideally, we'd have a helper to resolve Roles -> Emails based on Dept.
-    // For this step, let's assume 'to' might be a specific email OR we notify all users with that role/dept.
-
     await notifyRecipients(savedForm, 'faculty', to, department);
+
+    // --- SMTP: Email submitter confirmation ---
+    try {
+      const submitter = await logmodel.findOne({ email: submittedBy }).lean();
+      if (submitter) {
+        await sendStatusUpdateEmail({
+          recipientEmail: submittedBy,
+          recipientName: `${submitter.fName || ''} ${submitter.lName || ''}`.trim(),
+          formSubject: subject,
+          formId: savedForm._id,
+          formType: 'faculty',
+          newStatus: 'forwarded',
+          actionBy: 'You (submission confirmed)',
+          remarks: ''
+        });
+      }
+    } catch (emailErr) {
+      console.error('[EMAIL] Submission confirmation email failed:', emailErr.message);
+    }
 
     res.send('Form submitted');
   } catch (error) {
@@ -261,7 +273,7 @@ app.post('/facultyFormSubmission', authenticateToken, async (req, res) => {
     res.status(500).send("Form submission failed");
   }
 });
-app.post('/studentFormSubmission', authenticateToken, async (req, res) => {
+app.post('/studentFormSubmission', async (req, res) => {
   const { date, to, category, subject, subjectElaboration, others, department, details, attachment, attachments, submittedBy, div, year } = req.body;
   console.log(req.body);
   try {
@@ -286,6 +298,25 @@ app.post('/studentFormSubmission', authenticateToken, async (req, res) => {
 
     await notifyRecipients(savedForm, 'student', to, department);
 
+    // --- SMTP: Email submitter confirmation ---
+    try {
+      const submitter = await logmodel.findOne({ email: submittedBy }).lean();
+      if (submitter) {
+        await sendStatusUpdateEmail({
+          recipientEmail: submittedBy,
+          recipientName: `${submitter.fName || ''} ${submitter.lName || ''}`.trim(),
+          formSubject: subject,
+          formId: savedForm._id,
+          formType: 'student',
+          newStatus: 'forwarded',
+          actionBy: 'You (submission confirmed)',
+          remarks: ''
+        });
+      }
+    } catch (emailErr) {
+      console.error('[EMAIL] Submission confirmation email failed:', emailErr.message);
+    }
+
     res.send('Form submitted');
   } catch (error) {
     console.log(error);
@@ -294,7 +325,7 @@ app.post('/studentFormSubmission', authenticateToken, async (req, res) => {
 });
 
 // Change Password
-app.put('/changePassword', authenticateToken, async (req, res) => {
+app.put('/changePassword', async (req, res) => {
   const { email, currentPassword, newPassword } = req.body;
   if (!email || !currentPassword || !newPassword) {
     return res.status(400).send({ message: 'email, currentPassword, and newPassword are required.' });
@@ -329,7 +360,7 @@ app.post('/createAccount', async (req, res) => {
 });
 
 // Update user details
-app.put('/updateUser', authenticateToken, async (req, res) => {
+app.put('/updateUser', async (req, res) => {
   const { email, updates } = req.body;
   if (!email || !updates || typeof updates !== 'object') {
     return res.status(400).send({ message: 'Email and updates object are required.' });
@@ -349,56 +380,60 @@ app.put('/updateUser', authenticateToken, async (req, res) => {
       changes.department = updates.department;
     }
     if (updates.year !== undefined) {
-      changes.year = updates.year === '' || updates.year === null ? null : Number(updates.year);
+      const yearNum = Number(updates.year);
+      if (!Number.isFinite(yearNum)) {
+        return res.status(400).send({ message: 'year must be a number' });
+      }
+      changes.year = yearNum;
     }
     if (updates.div !== undefined) {
-      changes.div = updates.div === '' || updates.div === null ? null : String(updates.div).trim();
+      changes.div = String(updates.div);
     }
     if (typeof updates.password === 'string' && updates.password.length > 0) {
       changes.password = await bcrypt.hash(updates.password, 10);
     }
 
-    if (changes.role && !allowedRoles.has(changes.role)) {
-      return res.status(400).send({ message: `Role '${changes.role}' is not supported.` });
-    }
-    if (changes.department && !allowedDepartments.has(changes.department)) {
-      return res.status(400).send({ message: `Department '${changes.department}' is not supported.` });
+    if (Object.keys(changes).length === 0) {
+      return res.status(400).send({ message: 'No valid fields to update.' });
     }
 
-    const updatedUser = await logmodel.findOneAndUpdate(
+    const updated = await logmodel.findOneAndUpdate(
       { email },
       { $set: changes },
-      { new: true, runValidators: true }
-    ).select('-password');
+      { new: true }
+    ).lean();
 
-    if (!updatedUser) {
+    if (!updated) {
       return res.status(404).send({ message: 'User not found' });
     }
 
-    if (isRole(updatedUser.role, ROLES.FACULTY_ADVISOR) && updatedUser.year && updatedUser.div && updatedUser.department) {
+    if (isRole(updated.role, ROLES.FACULTY_ADVISOR) && updated.year && updated.div && updated.department) {
+      // Sync with fAdvisorModel
       const existingAssignment = await fAdvisorModel.findOne({
-        year: updatedUser.year,
-        div: updatedUser.div,
-        department: updatedUser.department
+        year: updated.year,
+        div: updated.div,
+        department: updated.department
       });
 
       if (existingAssignment) {
         const hasFaculty = existingAssignment.facultyNames.some(f => f.email === email);
         if (!hasFaculty) {
-          existingAssignment.facultyNames.push({ name: `${updatedUser.fName} ${updatedUser.lName}`, email });
+          existingAssignment.facultyNames.push({ name: `${updated.fName} ${updated.lName}`, email });
           await existingAssignment.save();
         }
       } else {
         await new fAdvisorModel({
-          year: updatedUser.year,
-          div: updatedUser.div,
-          department: updatedUser.department,
-          facultyNames: [{ name: `${updatedUser.fName} ${updatedUser.lName}`, email }]
+          year: updated.year,
+          div: updated.div,
+          department: updated.department,
+          facultyNames: [{ name: `${updated.fName} ${updated.lName}`, email }]
         }).save();
       }
     }
 
-    res.status(200).json({ message: 'User updated successfully', user: updatedUser });
+    // Remove password from response
+    delete updated.password;
+    res.status(200).send(updated);
   } catch (error) {
     console.error('Error updating user:', error);
     res.status(500).send({ message: 'Failed to update user', error: error.message });
@@ -406,7 +441,7 @@ app.put('/updateUser', authenticateToken, async (req, res) => {
 });
 
 // Delete user
-app.delete('/deleteUser/:email', authenticateToken, async (req, res) => {
+app.delete('/deleteUser/:email', async (req, res) => {
   try {
     const { email } = req.params;
     const deletedUser = await logmodel.findOneAndDelete({ email });
@@ -422,13 +457,34 @@ app.delete('/deleteUser/:email', authenticateToken, async (req, res) => {
 
 
 app.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  // Accept either { email, password } (old) or { identifier, password } (new username login)
+  const { email, identifier, password } = req.body;
+  const loginKey = identifier || email; // support both field names
+
+  if (!loginKey || !password) {
+    return res.status(400).send('Username/email and password are required.');
+  }
+
   try {
-    const usr = await logmodel.findOne({ email });
-    if (!usr) return res.status(400).send("Invalid Credentials");
+    // Try to find user by username first, then by email
+    let usr = null;
+
+    // Check if it looks like an email
+    const isEmail = loginKey.includes('@');
+
+    if (isEmail) {
+      usr = await logmodel.findOne({ email: loginKey });
+    } else {
+      // Try username first
+      usr = await logmodel.findOne({ username: loginKey });
+      // Fallback to email just in case
+      if (!usr) usr = await logmodel.findOne({ email: loginKey });
+    }
+
+    if (!usr) return res.status(400).send('Invalid credentials');
 
     const isMatch = await bcrypt.compare(password, usr.password);
-    if (!isMatch) return res.status(400).send("Invalid Credentials");
+    if (!isMatch) return res.status(400).send('Invalid credentials');
 
     const token = jwt.sign(
       { _id: usr._id, email: usr.email, role: usr.role, department: usr.department, year: usr.year, div: usr.div },
@@ -442,6 +498,7 @@ app.post('/login', async (req, res) => {
       lName: usr.lName,
       email: usr.email,
       role: usr.role,
+      username: usr.username || null,
       token
     });
   } catch (error) {
@@ -450,7 +507,46 @@ app.post('/login', async (req, res) => {
   }
 });
 
-app.put('/updateMyDepartment', authenticateToken, async (req, res) => {
+// TEMPORARY: Update/set username for login
+app.put('/updateUsername', async (req, res) => {
+  const { email, username } = req.body;
+  if (!email) return res.status(400).send({ message: 'Email is required.' });
+
+  try {
+    // If username is empty string, clear it (allow email-only login)
+    const newUsername = username?.trim() || null;
+
+    // Validate: no spaces, min 3 chars if set
+    if (newUsername) {
+      if (newUsername.length < 3) {
+        return res.status(400).send({ message: 'Username must be at least 3 characters.' });
+      }
+      if (/\s/.test(newUsername)) {
+        return res.status(400).send({ message: 'Username cannot contain spaces.' });
+      }
+      // Check uniqueness (exclude current user)
+      const existing = await logmodel.findOne({ username: newUsername, email: { $ne: email } });
+      if (existing) {
+        return res.status(409).send({ message: 'Username is already taken. Please choose another.' });
+      }
+    }
+
+    const updated = await logmodel.findOneAndUpdate(
+      { email },
+      { $set: { username: newUsername } },
+      { new: true }
+    ).select('-password');
+
+    if (!updated) return res.status(404).send({ message: 'User not found.' });
+
+    res.status(200).send({ message: 'Username updated successfully.', username: updated.username });
+  } catch (error) {
+    console.error('Error updating username:', error);
+    res.status(500).send({ message: 'Failed to update username.', error: error.message });
+  }
+});
+
+app.put('/updateMyDepartment', async (req, res) => {
   const { email, department } = req.body;
   try {
     const usr = await logmodel.findOneAndUpdate({ email }, { department }, { new: true });
@@ -468,7 +564,7 @@ app.put('/updateMyDepartment', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/updateMyRole', authenticateToken, async (req, res) => {
+app.put('/updateMyRole', async (req, res) => {
   const { email, role, year, div } = req.body;
   try {
     const usr = await logmodel.findOne({ email });
@@ -543,7 +639,7 @@ app.put('/updateMyRole', authenticateToken, async (req, res) => {
 });
 
 // Get all users
-app.get('/api/user/profile/:email', authenticateToken, async (req, res) => {
+app.get('/api/user/profile/:email', async (req, res) => {
   try {
     const user = await logmodel.findOne({ email: req.params.email }).select('-password').lean();
     if (!user) return res.status(404).send('User not found');
@@ -553,7 +649,7 @@ app.get('/api/user/profile/:email', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/getAllUsers', authenticateToken, async (req, res) => {
+app.get('/getAllUsers', async (req, res) => {
   try {
     const users = await logmodel.find();
     res.send(users);
@@ -563,7 +659,7 @@ app.get('/getAllUsers', authenticateToken, async (req, res) => {
 });
 
 // Unified endpoint for all roles
-app.get('/getFormsForUser', authenticateToken, async (req, res) => {
+app.get('/getFormsForUser', async (req, res) => {
   const { email, role } = req.query;
   try {
     if (isRole(role, ROLES.ADMIN)) {
@@ -591,7 +687,7 @@ app.get('/getFormsForUser', authenticateToken, async (req, res) => {
 });
 
 // Archived forms (final status) for a user
-app.get('/getArchivedForms', authenticateToken, async (req, res) => {
+app.get('/getArchivedForms', async (req, res) => {
   const { email, role } = req.query;
   if (!email || !role) {
     return res.status(400).send({ message: 'Missing required parameters: email, role' });
@@ -693,7 +789,7 @@ app.get('/getArchivedForms', authenticateToken, async (req, res) => {
  * - year (number): The user's assigned year (required for 'FacultyAdvisor').
  * - div (string): The user's assigned division (required for 'FacultyAdvisor').
  */
-app.get('/getReceivedFormsForUser', authenticateToken, async (req, res) => {
+app.get('/getReceivedFormsForUser', async (req, res) => {
   const { role, department, year, div, type, email } = req.query; // Added 'email'
   console.log({ role, department, year, div, type, email });
 
@@ -797,10 +893,40 @@ app.get('/getReceivedFormsForUser', authenticateToken, async (req, res) => {
   }
 });
 
+
+// Endpoint to update remarks and status for a form
+// app.put('/updateFormRemarksStatus', async (req, res) => {
+//   const { formId, formType, remarks, status, to } = req.body;
+//   console.log(req.body);
+//   try {
+//     let model;
+//     if (formType === 'student') {
+//       model = sFormModel;
+//     } else if (formType === 'faculty') {
+//       model = fFormModel;
+//     } else {
+//       return res.status(400).send('Invalid form type');
+//     }
+//     const updateFields = {};
+//     if (remarks !== undefined) updateFields.remarks = remarks;
+//     if (status !== undefined) updateFields.status = status;
+//     if (to !== undefined) updateFields.to = to;
+//     const updated = await model.findByIdAndUpdate(
+//       formId,
+//       updateFields,
+//       { new: true }
+//     );
+//     if (!updated) return res.status(404).send('Form not found');
+//     res.send(updated);
+//   } catch (error) {
+//     res.status(500).send(error);
+//   }
+// });
+
 // --- Notification Endpoints ---
 
 // Send Reminder
-app.post('/sendReminder', authenticateToken, async (req, res) => {
+app.post('/sendReminder', async (req, res) => {
   const { formId, formType, submitterEmail, currentHandlerRoles, department } = req.body;
   try {
     // Notify the current handler roles based on the pending status
@@ -828,7 +954,7 @@ app.post('/sendReminder', authenticateToken, async (req, res) => {
 });
 
 // Get notifications for a user
-app.get('/notifications', authenticateToken, async (req, res) => {
+app.get('/notifications', async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).send({ message: 'Email is required' });
   try {
@@ -841,7 +967,7 @@ app.get('/notifications', authenticateToken, async (req, res) => {
 });
 
 // Mark single notification as read
-app.put('/markNotificationRead/:id', authenticateToken, async (req, res) => {
+app.put('/markNotificationRead/:id', async (req, res) => {
   try {
     await NotificationModel.findByIdAndUpdate(req.params.id, { isRead: true });
     res.send({ message: 'Marked as read' });
@@ -851,7 +977,7 @@ app.put('/markNotificationRead/:id', authenticateToken, async (req, res) => {
 });
 
 // Mark all notifications as read
-app.put('/markAllNotificationsRead', authenticateToken, async (req, res) => {
+app.put('/markAllNotificationsRead', async (req, res) => {
   const { email } = req.body;
   try {
     await NotificationModel.updateMany({ recipientEmail: email, isRead: false }, { isRead: true });
@@ -862,7 +988,7 @@ app.put('/markAllNotificationsRead', authenticateToken, async (req, res) => {
 });
 
 // Delete read notifications (optional cleanup)
-app.delete('/clearNotifications/:email', authenticateToken, async (req, res) => {
+app.delete('/clearNotifications/:email', async (req, res) => {
   const email = req.params.email;
   try {
     await NotificationModel.deleteMany({ recipientEmail: email, isRead: true });
@@ -874,7 +1000,7 @@ app.delete('/clearNotifications/:email', authenticateToken, async (req, res) => 
 
 
 // 2. System Config Routes (Subjects)
-app.get('/api/settings/configs', authenticateToken, async (req, res) => {
+app.get('/api/settings/configs', async (req, res) => {
   const { type } = req.query;
   try {
     const query = type ? { configType: type, isActive: true } : { isActive: true };
@@ -885,7 +1011,7 @@ app.get('/api/settings/configs', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/settings/configs', authenticateToken, async (req, res) => {
+app.post('/api/settings/configs', async (req, res) => {
   try {
     const { _id, ...data } = req.body;
     if (_id) {
@@ -900,7 +1026,7 @@ app.post('/api/settings/configs', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/settings/configs/:id', authenticateToken, async (req, res) => {
+app.put('/api/settings/configs/:id', async (req, res) => {
   try {
     const updated = await SystemConfig.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.send(updated);
@@ -909,7 +1035,7 @@ app.put('/api/settings/configs/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/settings/configs/:id', authenticateToken, async (req, res) => {
+app.delete('/api/settings/configs/:id', async (req, res) => {
   try {
     await SystemConfig.findByIdAndDelete(req.params.id);
     res.send({ message: 'Config deleted' });
@@ -919,7 +1045,7 @@ app.delete('/api/settings/configs/:id', authenticateToken, async (req, res) => {
 });
 
 // 2. Role Dashboard Config Routes (RBAC)
-app.get('/api/admin/role-dashboard', authenticateToken, async (req, res) => {
+app.get('/api/admin/role-dashboard', async (req, res) => {
   try {
     const configs = await RoleDashboardConfig.find();
     res.send(configs);
@@ -928,7 +1054,7 @@ app.get('/api/admin/role-dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/admin/role-dashboard/:role', authenticateToken, async (req, res) => {
+app.get('/api/admin/role-dashboard/:role', async (req, res) => {
   try {
     const config = await RoleDashboardConfig.findOne({ role: new RegExp(`^${req.params.role}$`, 'i') });
     res.send(config || {}); // Send empty object if none exists so frontend can use defaults
@@ -937,7 +1063,7 @@ app.get('/api/admin/role-dashboard/:role', authenticateToken, async (req, res) =
   }
 });
 
-app.post('/api/admin/role-dashboard', authenticateToken, async (req, res) => {
+app.post('/api/admin/role-dashboard', async (req, res) => {
   try {
     const { role, permissions, dashboardWidgets } = req.body;
     let config = await RoleDashboardConfig.findOne({ role: new RegExp(`^${role}$`, 'i') });
@@ -958,7 +1084,7 @@ app.post('/api/admin/role-dashboard', authenticateToken, async (req, res) => {
 // Helper: generate a temporary password
 const generateTempPassword = () => 'Sngce@123';
 
-app.post('/api/users/bulk', authenticateToken, async (req, res) => {
+app.post('/api/users/bulk', async (req, res) => {
   const { users } = req.body;
   if (!Array.isArray(users) || users.length === 0) {
     return res.status(400).json({ error: 'No user data received' });
@@ -1070,7 +1196,7 @@ app.listen(PORT, () => {
 // });
 
 
-app.put('/updateFormRemarksStatus', authenticateToken, async (req, res) => {
+app.put('/updateFormRemarksStatus', async (req, res) => {
   const { formId, formType, remarks, status, to, by, authorName, authorEmail, category, subject, subjectElaboration, department, details, attachments, others } = req.body;
 
   try {
@@ -1182,6 +1308,72 @@ app.put('/updateFormRemarksStatus', authenticateToken, async (req, res) => {
       }
     }
 
+    // ── SMTP Email Notifications ─────────────────────────────────────────────
+    try {
+      const submitter = await logmodel.findOne({ email: updatedForm.submittedBy }).lean();
+      const submitterName = submitter ? `${submitter.fName || ''} ${submitter.lName || ''}`.trim() : updatedForm.submittedBy;
+
+      if (status === 'edit') {
+        // Edit requested: email the original submitter
+        await sendEditRequestEmail({
+          recipientEmail: updatedForm.submittedBy,
+          recipientName: submitterName,
+          formSubject: updatedForm.subject,
+          formId: updatedForm._id,
+          formType,
+          requestedBy: authorName || by || 'Reviewer',
+          remarks: remarks || ''
+        });
+
+      } else if (['accepted', 'approved', 'rejected'].includes(status)) {
+        // Final decision: email the submitter
+        await sendStatusUpdateEmail({
+          recipientEmail: updatedForm.submittedBy,
+          recipientName: submitterName,
+          formSubject: updatedForm.subject,
+          formId: updatedForm._id,
+          formType,
+          newStatus: status,
+          actionBy: authorName || by || 'Reviewer',
+          remarks: remarks || ''
+        });
+
+      } else if (status === 'forwarded' && to) {
+        // Forwarded: email submitter about progress + email new recipients
+        await sendStatusUpdateEmail({
+          recipientEmail: updatedForm.submittedBy,
+          recipientName: submitterName,
+          formSubject: updatedForm.subject,
+          formId: updatedForm._id,
+          formType,
+          newStatus: 'forwarded',
+          actionBy: authorName || by || 'Reviewer',
+          remarks: remarks || ''
+        });
+
+        // Resolve next recipients and email them
+        const newRecipient = Array.isArray(to) ? to[to.length - 1] : to;
+        const query = { role: { $regex: new RegExp(`^${newRecipient}$`, 'i') } };
+        if (['HOD', 'FacultyAdvisor'].includes(newRecipient) && updatedForm.department) {
+          query.department = updatedForm.department;
+        }
+        const nextReviewers = await logmodel.find(query).lean();
+        for (const reviewer of nextReviewers) {
+          await sendFormForwardedEmail({
+            recipientEmail: reviewer.email,
+            recipientName: `${reviewer.fName || ''} ${reviewer.lName || ''}`.trim(),
+            submitterName,
+            formSubject: updatedForm.subject,
+            formId: updatedForm._id,
+            formType,
+            actionBy: authorName || by || 'Reviewer'
+          });
+        }
+      }
+    } catch (emailErr) {
+      console.error('[EMAIL] Status update email failed:', emailErr.message);
+    }
+
     console.log('Update successful. Returning updated form.');
     res.status(200).send(updatedForm);
 
@@ -1192,7 +1384,7 @@ app.put('/updateFormRemarksStatus', authenticateToken, async (req, res) => {
 });
 
 // Endpoint to send a reminder notification
-app.post('/sendReminder', authenticateToken, async (req, res) => {
+app.post('/sendReminder', async (req, res) => {
   const { formId, formType, submitterEmail, currentHandlerRoles, department } = req.body;
 
   if (!formId || !formType || !submitterEmail || !currentHandlerRoles) {
@@ -1289,7 +1481,7 @@ async function notifyRecipients(form, formType, targetRole, department) {
 
 
 // Delete form endpoint - allows deletion of forms with 'awaiting' status by authorized users
-app.delete('/deleteForm', authenticateToken, async (req, res) => {
+app.delete('/deleteForm', async (req, res) => {
   const { formId, formType, userEmail, userRole } = req.body;
 
   console.log('Delete request received:', { formId, formType, userEmail, userRole });
@@ -1350,7 +1542,7 @@ app.delete('/deleteForm', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/clearAllForms', authenticateToken, async (req, res) => {
+app.delete('/clearAllForms', async (req, res) => {
   try {
     await sFormModel.deleteMany({});
     await fFormModel.deleteMany({});
@@ -1386,7 +1578,7 @@ function isValidReceiver(form, userEmail, userRole) {
 }
 
 // Get forwarded forms for a user (forms they submitted that have been forwarded)
-app.get('/getForwardedFormsForUser', authenticateToken, async (req, res) => {
+app.get('/getForwardedFormsForUser', async (req, res) => {
   const { email, role } = req.query;
 
   console.log('Fetching forwarded forms for:', { email, role });
@@ -1422,7 +1614,7 @@ app.get('/getForwardedFormsForUser', authenticateToken, async (req, res) => {
 });
 
 // Get aggregated dashboard stats
-app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
+app.get('/api/stats/dashboard', async (req, res) => {
   const { role, email } = req.query;
   try {
     const totalUsers = await logmodel.countDocuments();

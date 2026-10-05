@@ -30,6 +30,13 @@ const userSchema = mongoose.Schema({
   year : {
     type: Number
   },
+  // TEMPORARY: User-defined username for login. Will be removed later.
+  username: {
+    type: String,
+    unique: true,
+    sparse: true, // allows multiple users to have no username (null)
+    trim: true,
+  },
 }, { timestamps: true });
 
 // Index for role-based queries (admin dashboards)
