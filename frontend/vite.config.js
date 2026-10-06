@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: 'localhost',
+    allowedHosts: ['sngce.roronoa.in'],
     proxy: {
       // Proxy all API calls to the local backend
       '/login': 'http://localhost:3096',
